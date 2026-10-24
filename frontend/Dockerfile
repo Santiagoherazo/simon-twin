@@ -13,6 +13,8 @@ ENV VITE_API_URL=$VITE_API_URL VITE_MQTT_URL=$VITE_MQTT_URL VITE_MQTT_USER=$VITE
 RUN npm run build
 
 FROM nginx:1.27-alpine
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# nginx sustituye ${PORT} al arrancar (Railway lo define; por defecto 80)
+ENV PORT=80
+COPY nginx/default.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=build /app/dist /usr/share/nginx/html
 EXPOSE 80

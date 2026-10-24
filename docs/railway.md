@@ -1,15 +1,22 @@
 # Despliegue en Railway
 
-El repo es un monorepo: **no hay nada que construir en la raíz**. Si un servicio de Railway apunta a la raíz, Railpack falla con
-"Railpack failed to prepare the build". Cada servicio necesita su *Root Directory*:
+El repositorio es un monorepo: **en la raíz no hay nada que construir**. Si un servicio apunta a la raíz,
+Railpack falla con "Railpack failed to prepare the build". Cada servicio necesita su *Root Directory*
+(Settings → Source) y trae su propio `railway.json` + `Dockerfile`.
 
-| Servicio | Root Directory | Notas |
+| Servicio | Origen / Root Directory | Variables principales |
 |---|---|---|
-| timescaledb | (imagen `timescale/timescaledb:latest-pg16`) | tras crearlo, ejecuta `db/init.sql` una vez |
-| mosquitto | `/mosquitto` | vars `MQTT_*_PASSWORD`; expón el puerto 9001 (WebSocket) con dominio público |
-| backend | `/backend` | `DATABASE_URL`, `MQTT_HOST`, `MQTT_PORT=1883`, `MQTT_USER=backend`, `MQTT_PASSWORD`, `API_KEY`, `CORS_ORIGINS` |
-| frontend | `/frontend` | `PORT=80` y `VITE_*` (se leen al compilar) |
-| simulator | `/simulator` | `MQTT_HOST`, `MQTT_PASSWORD` (= la del usuario sim-01), `DEVICE_ID` |
+| Postgres | plantilla **TimescaleDB** de Railway (recomendado) o Postgres normal | — |
+| mosquitto | `/mosquitto` | `MQTT_BACKEND_PASSWORD`, `MQTT_SIM_PASSWORD`, `MQTT_ESP32_PASSWORD`, `MQTT_VIEWER_PASSWORD` |
+| backend | `/backend` | `DATABASE_URL`, `MQTT_HOST=mosquitto.railway.internal`, `MQTT_PORT=1883`, `MQTT_USER=backend`, `MQTT_PASSWORD`, `API_KEY`, `CORS_ORIGINS` |
+| frontend | `/frontend` | `VITE_API_URL`, `VITE_MQTT_URL`, `VITE_MQTT_USER=viewer`, `VITE_MQTT_PASS`, `VITE_DEFAULT_DEVICE=sim-01` |
+| simulator (opcional) | `/simulator` | `MQTT_HOST=mosquitto.railway.internal`, `MQTT_PASSWORD` (= `MQTT_SIM_PASSWORD`), `DEVICE_ID=sim-01` |
 
-Dentro de la red privada usa `mosquitto.railway.internal`, `timescaledb.railway.internal`, etc.
-No subas archivos `.env.*` con contraseñas reales al repo.
+Notas
+- **Esquema:** el backend crea las tablas solo al arrancar (`app/schema.sql`). Con la plantilla TimescaleDB además activa la hypertable, el agregado continuo y la retención; con Postgres normal funciona igual, sin eso.
+- `DATABASE_URL`: usa la referencia de Railway, p. ej. `${{Postgres.DATABASE_URL}}`.
+- `CORS_ORIGINS` es una lista JSON con la URL pública del frontend: `["https://tu-frontend.up.railway.app"]`.
+- Los `VITE_*` se incrustan al **compilar**: si los cambias hay que volver a desplegar el frontend. `VITE_MQTT_PASS` queda visible en el navegador (el usuario `viewer` solo puede leer, ver `mosquitto/acl`).
+- `VITE_MQTT_URL` debe ser `wss://…` hacia un dominio público de Mosquitto con *target port* 9001 (WebSocket). Para ESP32 reales usa un *TCP Proxy* al puerto 1883.
+- Backend y frontend usan el `PORT` que da Railway.
+- No subas archivos `.env.*` con contraseñas al repositorio.

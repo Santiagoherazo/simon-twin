@@ -98,7 +98,7 @@ def simulate(ctx: SimContext, req: SimulateRequest) -> dict:
 
     series = []
     irrigations: list[dict] = []
-    total_irrig = total_rain = total_etc = total_drain_est = 0.0
+    total_irrig = total_rain = total_etc = 0.0
     hours_stress = 0.0
     min_aw = None
     first_due = None

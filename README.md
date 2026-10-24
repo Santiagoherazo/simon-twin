@@ -82,3 +82,7 @@ El frontend está envuelto con Capacitor (`frontend/android`). GitHub Actions co
 - Es un APK **debug** (instálalo con "orígenes desconocidos"). Para Play Store hace falta firma release (keystore en secretos).
 - El WebView de Android **no soporta WebXR**: el botón de AR no aparecerá en la app; la AR sigue funcionando en Chrome Android vía PWA/HTTPS.
 - No se pudo compilar el APK en el entorno donde se escribió (sin Android SDK): el primer run de CI puede necesitar ajustes.
+
+## Despliegue en Railway
+
+Ver [docs/railway.md](docs/railway.md): un servicio por carpeta (Root Directory), variables y puertos.
