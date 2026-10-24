@@ -1,0 +1,172 @@
+{
+  "inputs": {
+    "crop": "maiz",
+    "soil_type": "franco",
+    "hours": 48.0,
+    "step_minutes": 60,
+    "vwc_pct0": 35.0,
+    "gdd0": 900.0,
+    "et_scale": 4.662,
+    "weather": {
+      "mode": "persist",
+      "temp_offset_c": 0.0,
+      "rh_offset": 0.0,
+      "lux_scale": 1.0,
+      "air_t_mean": 24.0,
+      "air_t_amp": 5.0,
+      "rh_mean": 65.0,
+      "lux_peak": 45000.0
+    },
+    "auto_irrigation": {
+      "enabled": false,
+      "mm": 15.0
+    }
+  },
+  "summary": {
+    "first_irrigation_due_h": 0.0,
+    "irrigations": [
+      {
+        "t_hour": 20.0,
+        "mm": 7.5,
+        "auto": false
+      }
+    ],
+    "irrigation_total_mm": 7.5,
+    "rain_total_mm": 0.0,
+    "etc_total_mm": 16.2,
+    "min_aw_pct": 8.0,
+    "hours_water_stress": 48.0,
+    "growth_index": 0.453,
+    "final_stage": "R3",
+    "final_plant": {
+      "height_cm": 220.0,
+      "leaf_count": 14,
+      "lai": 4.5,
+      "wilt": 0.82,
+      "health": null,
+      "has_tassel": true,
+      "has_fruit": true
+    }
+  },
+  "series": [
+    {
+      "t_hour": 0.0,
+      "ts": 1791932822.7586112,
+      "theta": 0.161,
+      "vwc_pct": 35.0,
+      "aw_pct": 27.3,
+      "dr_mm": 32.7,
+      "raw_mm": 24.8,
+      "taw_mm": 45.0,
+      "ks": 0.607,
+      "etc_mm_h": 0.0,
+      "stage": "R3",
+      "gdd": 900.0,
+      "gdd_eff": 900.0,
+      "air_t": 26.4,
+      "lux": 0.0,
+      "irrigation_mm": 0.0,
+      "rain_mm": 0.0,
+      "needs_irrigation": true,
+      "plant": {
+        "height_cm": 220.0,
+        "leaf_count": 14,
+        "lai": 4.5,
+        "wilt": 0.39,
+        "health": null,
+        "has_tassel": true,
+        "has_fruit": true
+      }
+    },
+    {
+      "t_hour": 1.0,
+      "ts": 1791936422.7586112,
+      "theta": 0.1607,
+      "vwc_pct": 34.9,
+      "aw_pct": 27.1,
+      "dr_mm": 32.8,
+      "raw_mm": 24.8,
+      "taw_mm": 45.0,
+      "ks": 0.607,
+      "etc_mm_h": 0.103,
+      "stage": "R3",
+      "gdd": 900.7,
+      "gdd_eff": 900.4,
+      "air_t": 25.9,
+      "lux": 0.0,
+      "irrigation_mm": 0,
+      "rain_mm": 0,
+      "needs_irrigation": true,
+      "plant": {
+        "height_cm": 220.0,
+        "leaf_count": 14,
+        "lai": 4.5,
+        "wilt": 0.4,
+        "health": null,
+        "has_tassel": true,
+        "has_fruit": true
+      }
+    },
+    {
+      "t_hour": 2.0,
+      "ts": 1791940022.7586112,
+      "theta": 0.1604,
+      "vwc_pct": 34.9,
+      "aw_pct": 26.9,
+      "dr_mm": 32.9,
+      "raw_mm": 24.8,
+      "taw_mm": 45.0,
+      "ks": 0.602,
+      "etc_mm_h": 0.086,
+      "stage": "R3",
+      "gdd": 901.3,
+      "gdd_eff": 900.8,
+      "air_t": 24.8,
+      "lux": 0.0,
+      "irrigation_mm": 0,
+      "rain_mm": 0,
+      "needs_irrigation": true,
+      "plant": {
+        "height_cm": 220.0,
+        "leaf_count": 14,
+        "lai": 4.5,
+        "wilt": 0.4,
+        "health": null,
+        "has_tassel": true,
+        "has_fruit": true
+      }
+    },
+    {
+      "t_hour": 3.0,
+      "ts": 1791943622.7586112,
+      "theta": 0.1601,
+      "vwc_pct": 34.8,
+      "aw_pct": 26.8,
+      "dr_mm": 33.0,
+      "raw_mm": 24.8,
+      "taw_mm": 45.0,
+      "ks": 0.598,
+      "etc_mm_h": 0.071,
+      "stage": "R3",
+      "gdd": 901.8,
+      "gdd_eff": 901.1,
+      "air_t": 23.5,
+      "lux": 0.0,
+      "irrigation_mm": 0,
+      "rain_mm": 0,
+      "needs_irrigation": true,
+      "plant": {
+        "height_cm": 220.0,
+        "leaf_count": 14,
+        "lai": 4.5,
+        "wilt": 0.41,
+        "health": null,
+        "has_tassel": true,
+        "has_fruit": true
+      }
+    },
+    {
+      "...": "resto de puntos, mismo formato"
+    }
+  ]
+}

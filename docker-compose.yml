@@ -1,0 +1,120 @@
+name: simon-twin
+
+# Puertos publicados solo en 127.0.0.1 (desarrollo). Para que un ESP32 real en tu
+# red local se conecte, cambia "127.0.0.1:1883:1883" por "1883:1883" y usa TLS
+# (ver README, sección Seguridad).
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
+    environment:
+      MQTT_BACKEND_PASSWORD: ${MQTT_BACKEND_PASSWORD:?copia .env.example a .env}
+      MQTT_SIM_PASSWORD: ${MQTT_SIM_PASSWORD:?copia .env.example a .env}
+      MQTT_ESP32_PASSWORD: ${MQTT_ESP32_PASSWORD:?copia .env.example a .env}
+      MQTT_VIEWER_PASSWORD: ${MQTT_VIEWER_PASSWORD:?copia .env.example a .env}
+    volumes:
+      - ./mosquitto/entrypoint.sh:/entrypoint.sh:ro
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto/acl:/mosquitto/config/acl:ro
+      - mosquitto_data:/mosquitto/data
+    ports:
+      - "127.0.0.1:1883:1883"   # MQTT
+      - "127.0.0.1:9001:9001"   # MQTT sobre WebSockets (para el front 3D)
+
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: simon
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?copia .env.example a .env}
+      POSTGRES_DB: simon
+    volumes:
+      - tsdb_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U simon -d simon"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      mosquitto:
+        condition: service_started
+    environment:
+      DATABASE_URL: postgresql://simon:${POSTGRES_PASSWORD}@timescaledb:5432/simon
+      MQTT_HOST: mosquitto
+      MQTT_PORT: "1883"
+      MQTT_USER: backend
+      MQTT_PASSWORD: ${MQTT_BACKEND_PASSWORD}
+      API_KEY: ${API_KEY:?copia .env.example a .env}
+    ports:
+      - "127.0.0.1:8000:8000"
+
+  # Dispositivo virtual: publica telemetría de suelo simulada, igual que el ESP32.
+  # Para reiniciar su historia: docker compose down -v (borra también la base de datos).
+  simulator:
+    build: ./simulator
+    restart: unless-stopped
+    depends_on:
+      mosquitto:
+        condition: service_started
+      backend:
+        condition: service_started
+    environment:
+      MQTT_HOST: mosquitto
+      MQTT_PORT: "1883"
+      DEVICE_ID: sim-01
+      MQTT_PASSWORD: ${MQTT_SIM_PASSWORD}
+      SIM_INTERVAL_SECONDS: ${SIM_INTERVAL_SECONDS:-5}   # cada cuánto publica en tiempo real
+      SIM_BACKFILL_DAYS: ${SIM_BACKFILL_DAYS:-14}        # histórico que publica la primera vez
+      SIM_AUTO_IRRIGATE_LIVE: ${SIM_AUTO_IRRIGATE_LIVE:-false}
+    volumes:
+      - sim_data:/data
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: ${WEB_API_URL:-http://127.0.0.1:8000}
+        VITE_MQTT_URL: ${WEB_MQTT_URL:-ws://127.0.0.1:9001}
+        VITE_MQTT_USER: viewer
+        VITE_MQTT_PASS: ${MQTT_VIEWER_PASSWORD}
+        VITE_DEFAULT_DEVICE: ${WEB_DEFAULT_DEVICE:-sim-01}
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "127.0.0.1:8080:80"
+
+  # Opcional: docker compose --profile grafana up -d
+  grafana:
+    image: grafana/grafana:11.2.0
+    profiles: ["grafana"]
+    restart: unless-stopped
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-change-me}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:3000:3000"
+
+volumes:
+  mosquitto_data:
+  sim_data:
+  tsdb_data:
+  grafana_data:

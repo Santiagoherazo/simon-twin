@@ -1,0 +1,39 @@
+{
+  "name": "simon-twin-frontend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Frontend del gemelo digital Simón: escena 3D de un cultivo en vivo y simulador what-if",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 5173",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 5173",
+    "typecheck": "tsc --noEmit",
+    "cap:sync": "vite build && cap sync android",
+    "cap:open": "cap open android"
+  },
+  "dependencies": {
+    "@capacitor/core": "7.6.9",
+    "@pmndrs/assets": "1.7.0",
+    "@react-three/drei": "9.117.3",
+    "@react-three/fiber": "8.17.10",
+    "@react-three/postprocessing": "2.16.3",
+    "mqtt": "5.10.3",
+    "postprocessing": "6.36.7",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "three": "0.170.0",
+    "three-bvh-csg": "0.0.16",
+    "three-mesh-bvh": "0.8.3"
+  },
+  "devDependencies": {
+    "@capacitor/android": "7.6.9",
+    "@capacitor/cli": "7.6.9",
+    "@types/react": "18.3.12",
+    "@types/react-dom": "18.3.1",
+    "@types/three": "0.170.0",
+    "@vitejs/plugin-react": "4.3.4",
+    "typescript": "5.6.3",
+    "vite": "6.0.7"
+  }
+}

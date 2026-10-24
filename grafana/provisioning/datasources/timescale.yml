@@ -1,0 +1,14 @@
+apiVersion: 1
+datasources:
+  - name: Simon
+    type: postgres
+    access: proxy
+    url: timescaledb:5432
+    user: simon
+    jsonData:
+      database: simon
+      sslmode: disable
+      timescaledb: true
+      postgresVersion: 1600
+    secureJsonData:
+      password: $POSTGRES_PASSWORD

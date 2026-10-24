@@ -1,0 +1,57 @@
+# Perfil de cultivo: TOMATE (Solanum lycopersicum)
+# Valores INDICATIVOS para un prototipo; validar con fuentes agronómicas locales.
+# Kc y p de agotamiento: FAO-56.
+id: tomate
+name: Tomate
+scientific: Solanum lycopersicum
+note: Valores indicativos; validar con fuentes agronómicas locales.
+
+gdd:
+  base_c: 10
+  cap_c: 30
+  maturity: 1500
+
+water:
+  p_depletion: 0.40
+
+optimal:
+  air_t: [18, 28]
+  soil_t: [16, 28]
+  ph: [6.0, 6.8]
+  ec: [300, 2000]
+  n: [40, 150]
+  p: [20, 70]
+  k: [150, 400]
+  vpd_kpa: [0.6, 1.2]
+  light: [25000, 65535]
+
+weights:
+  soil_moisture: 3.0
+  air_t: 1.5
+  soil_t: 1.0
+  ph: 1.0
+  ec: 0.5
+  n: 1.0
+  p: 1.0
+  k: 1.0
+  vpd_kpa: 1.0
+  light: 0.5
+
+stages:
+  - {code: ES, name: "Establecimiento",  gdd_start: 0,    kc: 0.60, root_depth_cm: 20}
+  - {code: VG, name: "Vegetativo",       gdd_start: 150,  kc: 0.80, root_depth_cm: 40,
+     optimal: {n: [60, 160]}}
+  - {code: FL, name: "Floración",        gdd_start: 450,  kc: 1.10, root_depth_cm: 60,
+     optimal: {k: [200, 450]}}
+  - {code: FR, name: "Cuajado y llenado", gdd_start: 700, kc: 1.15, root_depth_cm: 70,
+     optimal: {k: [200, 450]}}
+  - {code: MD, name: "Maduración",       gdd_start: 1100, kc: 0.80, root_depth_cm: 70}
+
+plant_visual:
+  max_height_cm: 150
+  height_full_gdd: 700
+  max_leaves: 22
+  leaves_full_gdd: 700
+  max_lai: 3.5
+  tassel_from_stage: FL     # aparecen las flores
+  fruit_from_stage: FR

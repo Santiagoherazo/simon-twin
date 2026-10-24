@@ -1,0 +1,208 @@
+{
+  "v": 1,
+  "device_id": "sim-01",
+  "ts": 1791932788.473801,
+  "online": true,
+  "ready": true,
+  "crop": {
+    "id": "maiz",
+    "name": "Maíz",
+    "note": "Valores indicativos; validar con fuentes agronómicas locales."
+  },
+  "soil_type": {
+    "id": "franco",
+    "name": "Franco"
+  },
+  "device": {
+    "soil_depth_cm": 30.0,
+    "pot_area_cm2": 400.0,
+    "pump_flow_ml_min": 300.0,
+    "mm_per_pump_second": 0.125
+  },
+  "age_s": 0.0,
+  "readings": {
+    "vwc_pct": 48.7,
+    "soil_t": 26.99,
+    "ph": 6.47,
+    "ec": 605.0,
+    "n": 79.9,
+    "p": 31.0,
+    "k": 183.5,
+    "air_t": 27.15,
+    "air_rh": 65.9,
+    "vpd_kpa": 1.227,
+    "lux": 0.0,
+    "tank_ok": true,
+    "pump_on": true,
+    "pump_ma": 215.0
+  },
+  "stage": {
+    "code": "V3",
+    "name": "Desarrollo temprano",
+    "index": 1,
+    "count": 6,
+    "gdd": 201.7,
+    "progress_pct": 73.2,
+    "days_since_sowing": 15,
+    "kc": 0.45,
+    "root_depth_cm": 30.0
+  },
+  "soil": {
+    "vwc_pct": 48.7,
+    "theta": 0.224,
+    "theta_sat": 0.46,
+    "theta_fc": 0.27,
+    "theta_wp": 0.12,
+    "aw_pct": 69.3,
+    "dr_mm": 13.8,
+    "raw_mm": 24.8,
+    "taw_mm": 45.0,
+    "ks": 1.0,
+    "water_stress": 0.0,
+    "needs_irrigation": false,
+    "root_depth_cm": 30.0
+  },
+  "suitability": {
+    "overall": 100.0,
+    "variables": [
+      {
+        "id": "soil_moisture",
+        "label": "Humedad del suelo (agua útil)",
+        "unit": "%",
+        "value": 69.3,
+        "score": 100.0,
+        "status": "ok",
+        "optimal": [
+          45.0,
+          100.0
+        ]
+      },
+      {
+        "id": "air_t",
+        "label": "Temperatura del aire",
+        "unit": "°C",
+        "value": 27.15,
+        "score": 100.0,
+        "status": "ok",
+        "optimal": [
+          20.0,
+          30.0
+        ]
+      },
+      {
+        "id": "soil_t",
+        "label": "Temperatura del suelo",
+        "unit": "°C",
+        "value": 26.99,
+        "score": 100.0,
+        "status": "ok",
+        "optimal": [
+          18.0,
+          30.0
+        ]
+      },
+      {
+        "id": "ph",
+        "label": "pH",
+        "unit": "",
+        "value": 6.47,
+        "score": 100.0,
+        "status": "ok",
+        "optimal": [
+          5.8,
+          7.0
+        ]
+      },
+      {
+        "id": "ec",
+        "label": "Conductividad eléctrica",
+        "unit": "µS/cm",
+        "value": 605.0,
+        "score": 100.0,
+        "status": "ok",
+        "optimal": [
+          200.0,
+          1500.0
+        ]
+      },
+      {
+        "id": "n",
+        "label": "Nitrógeno (N)",
+        "unit": "mg/kg",
+        "value": 79.9,
+        "score": 100.0,
+        "status": "ok",
+        "optimal": [
+          30.0,
+          110.0
+        ]
+      },
+      {
+        "id": "p",
+        "label": "Fósforo (P)",
+        "unit": "mg/kg",
+        "value": 31.0,
+        "score": 100.0,
+        "status": "ok",
+        "optimal": [
+          15.0,
+          60.0
+        ]
+      },
+      {
+        "id": "k",
+        "label": "Potasio (K)",
+        "unit": "mg/kg",
+        "value": 183.5,
+        "score": 100.0,
+        "status": "ok",
+        "optimal": [
+          100.0,
+          300.0
+        ]
+      },
+      {
+        "id": "vpd_kpa",
+        "label": "Déficit de presión de vapor",
+        "unit": "kPa",
+        "value": 1.227,
+        "score": 100.0,
+        "status": "ok",
+        "optimal": [
+          0.8,
+          1.6
+        ]
+      },
+      {
+        "id": "light",
+        "label": "Luz (de día)",
+        "unit": "lx",
+        "value": 0.0,
+        "score": null,
+        "status": "n/a",
+        "optimal": [
+          25000.0,
+          65535.0
+        ]
+      }
+    ]
+  },
+  "alerts": [],
+  "prediction": {
+    "hours_to_irrigation": 41.0,
+    "next_irrigation_ts": 1792080388.473801,
+    "horizon_h": 120,
+    "et_scale": 4.662,
+    "et_scale_confidence": "medium",
+    "forecast_basis": "patrón de las últimas 48 h"
+  },
+  "plant": {
+    "height_cm": 44.3,
+    "leaf_count": 4,
+    "lai": 0.86,
+    "wilt": 0.0,
+    "health": 1.0,
+    "has_tassel": false,
+    "has_fruit": false
+  }
+}

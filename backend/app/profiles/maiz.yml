@@ -1,0 +1,63 @@
+# Perfil de cultivo: MAÍZ (Zea mays)
+# Valores INDICATIVOS para un prototipo. Valídalos con FENALCE / AGROSAVIA / ICA y con el
+# híbrido que uses: los grados-día y los rangos de nutrientes varían mucho entre híbridos.
+# Kc y p de agotamiento: FAO-56 (Allen et al., 1998).
+id: maiz
+name: Maíz
+scientific: Zea mays
+note: Valores indicativos; validar con fuentes agronómicas locales.
+
+gdd:
+  base_c: 10          # temperatura base
+  cap_c: 30           # por encima de esto no hay más desarrollo
+  maturity: 1500      # °C-día aproximados hasta madurez fisiológica
+
+water:
+  p_depletion: 0.55   # fracción del agua útil que se puede agotar sin estrés
+
+# Rangos óptimos globales. [mínimo, máximo]
+optimal:
+  air_t: [20, 30]       # °C aire
+  soil_t: [18, 30]      # °C suelo
+  ph: [5.8, 7.0]
+  ec: [200, 1500]       # µS/cm (depende de la sonda; calibrar)
+  n: [40, 150]          # mg/kg (relativo; las sondas NPK baratas no son absolutas)
+  p: [15, 60]
+  k: [100, 300]
+  vpd_kpa: [0.8, 1.6]
+  light: [25000, 65535] # lux de día
+
+# Cuánto pesa cada variable en el puntaje general
+weights:
+  soil_moisture: 3.0
+  air_t: 1.5
+  soil_t: 1.0
+  ph: 1.0
+  ec: 0.5
+  n: 1.0
+  p: 1.0
+  k: 1.0
+  vpd_kpa: 1.0
+  light: 0.5
+
+# Etapas por grados-día acumulados (gdd_start = inicio de la etapa)
+stages:
+  - {code: VE, name: "Siembra y emergencia",       gdd_start: 0,    kc: 0.30, root_depth_cm: 10,
+     optimal: {soil_t: [18, 30], n: [20, 100]}}
+  - {code: V3, name: "Desarrollo temprano",        gdd_start: 70,   kc: 0.45, root_depth_cm: 30,
+     optimal: {n: [30, 110]}}
+  - {code: V6, name: "Crecimiento rápido",         gdd_start: 250,  kc: 0.85, root_depth_cm: 60,
+     optimal: {n: [50, 150]}}
+  - {code: VT, name: "Floración",                  gdd_start: 600,  kc: 1.20, root_depth_cm: 90}
+  - {code: R3, name: "Llenado de grano",           gdd_start: 800,  kc: 1.15, root_depth_cm: 100}
+  - {code: R6, name: "Madurez fisiológica",        gdd_start: 1300, kc: 0.60, root_depth_cm: 100}
+
+# Cómo se dibuja la planta en el gemelo 3D
+plant_visual:
+  max_height_cm: 220
+  height_full_gdd: 700     # a partir de aquí deja de crecer en altura
+  max_leaves: 14
+  leaves_full_gdd: 600
+  max_lai: 4.5
+  tassel_from_stage: VT    # aparece la panoja
+  fruit_from_stage: R3     # aparecen las mazorcas

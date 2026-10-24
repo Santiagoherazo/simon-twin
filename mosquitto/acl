@@ -1,0 +1,20 @@
+# Convención: el usuario MQTT de cada dispositivo es su device_id (esp32-01, sim-01…)
+#
+# Topics:
+#   simon/<device>/telemetry   dispositivo -> broker   (lecturas)
+#   simon/<device>/status      dispositivo -> broker   (online/offline, retained + LWT)
+#   simon/<device>/cmd/pump    backend -> dispositivo  (comandos)
+
+# Reglas por patrón (%u = usuario que se conecta): cada dispositivo solo escribe
+# en SUS topics y solo lee SUS comandos.
+pattern write simon/%u/telemetry
+pattern write simon/%u/status
+pattern read  simon/%u/cmd/#
+
+# Backend: lee todo y publica comandos
+user backend
+topic readwrite simon/#
+
+# Front / dashboards: solo lectura
+user viewer
+topic read simon/#
