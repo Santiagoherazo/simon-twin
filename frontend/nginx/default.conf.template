@@ -1,6 +1,5 @@
 server {
-  listen ${PORT} default_server;
-  listen [::]:${PORT} default_server;
+  listen ${PORT};
   root /usr/share/nginx/html;
   index index.html;
   gzip on;
