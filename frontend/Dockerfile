@@ -12,9 +12,10 @@ ENV VITE_API_URL=$VITE_API_URL VITE_MQTT_URL=$VITE_MQTT_URL VITE_MQTT_USER=$VITE
     VITE_MQTT_PASS=$VITE_MQTT_PASS VITE_DEFAULT_DEVICE=$VITE_DEFAULT_DEVICE
 RUN npm run build
 
-FROM nginx:1.27-alpine
+FROM node:22-alpine
+WORKDIR /app
+RUN npm install -g serve@14
+COPY --from=build /app/dist ./dist
 ENV PORT=80
-COPY nginx/default.conf.template /default.conf.template
-COPY --from=build /app/dist /usr/share/nginx/html
 EXPOSE 80
-CMD ["sh", "-c", "envsubst '${PORT}' < /default.conf.template > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"]
+CMD ["sh", "-c", "serve -s dist -l tcp://0.0.0.0:${PORT}"]
