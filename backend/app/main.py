@@ -92,6 +92,14 @@ async def health():
     return {"db": db_ok, "mqtt": app.state.mqtt is not None}
 
 
+@app.get("/mqtt-config")
+async def mqtt_config():
+    """Dirección pública del broker para los ESP32 (el firmware la consulta al arrancar y cada pocos segundos)."""
+    if not settings.mqtt_public_host or not settings.mqtt_public_port:
+        raise HTTPException(404, "define MQTT_PUBLIC_HOST y MQTT_PUBLIC_PORT en el backend")
+    return {"host": settings.mqtt_public_host, "port": settings.mqtt_public_port}
+
+
 @app.get("/crops")
 async def crops():
     return [

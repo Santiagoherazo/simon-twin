@@ -11,7 +11,7 @@ export const useQuality = () => useContext(QualityContext)
 
 const KEY = 'simon.quality'
 
-/** Calidad inicial: ?q=high|medium|low > lo guardado > automático (móvil/puntero táctil = media). */
+/** Calidad inicial: ?q=high|medium|low > lo guardado > automático (APK o celular = baja, tableta = media, PC = alta). */
 export function initialQuality(): Quality {
   try {
     const q = new URLSearchParams(location.search).get('q')
@@ -27,6 +27,8 @@ export function initialQuality(): Quality {
   }
   const coarse = typeof matchMedia !== 'undefined' && matchMedia('(pointer: coarse)').matches
   const small = typeof screen !== 'undefined' && Math.min(screen.width, screen.height) < 700
+  const native = !!(window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.()
+  if (native || (coarse && small)) return 'low'
   return coarse || small ? 'medium' : 'high'
 }
 

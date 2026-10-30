@@ -42,6 +42,14 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
+      - name: Verificar variables de conexión
+        run: |
+          if [ -z "$VITE_API_URL" ] || [ -z "$VITE_MQTT_URL" ]; then
+            echo "::error::Faltan las variables VITE_API_URL y VITE_MQTT_URL (Settings → Secrets and variables → Actions → Variables). Sin ellas el APK apunta a 127.0.0.1 y nunca muestra datos."
+            exit 1
+          fi
+          case "$VITE_API_URL$VITE_MQTT_URL" in *127.0.0.1*|*localhost*) echo "::error::Las URLs no pueden ser localhost"; exit 1;; esac
+
       - name: Instalar dependencias
         run: npm ci
 

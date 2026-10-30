@@ -32,6 +32,16 @@ function ToneSwitch({ quality, force }: { quality: Quality; force: boolean }) {
   return null
 }
 
+/** En calidad baja dibuja a 30 fps (frameloop por demanda): menos calor y batería en el celular. */
+function FpsCap({ fps }: { fps: number }) {
+  const invalidate = useThree((s) => s.invalidate)
+  useEffect(() => {
+    const id = window.setInterval(() => invalidate(), 1000 / fps)
+    return () => window.clearInterval(id)
+  }, [invalidate, fps])
+  return null
+}
+
 /** Resolución adaptativa: baja la densidad de píxeles si los fotogramas tardan y, en el límite, pide menos calidad. */
 function AdaptiveRes({ max, onFloor }: { max: number; onFloor: () => void }) {
   const setDpr = useThree((s) => s.setDpr)
@@ -83,10 +93,11 @@ export function Scene({ narrow, quality, onQualityDrop, shiftPx = 0 }: SceneProp
   const maxDpr = quality === 'high' ? 2 : quality === 'medium' ? 1.5 : 1.25
   return (
     <Canvas
-      shadows="soft"
+      shadows={quality === 'low' ? true : 'soft'}
+      frameloop={quality === 'low' && !xr.active ? 'demand' : 'always'}
       dpr={[1, maxDpr]}
       camera={{ position: narrow ? [11.5, 7.8, 20.5] : [9.8, 7.6, 16.8], fov: narrow ? 46 : 36, near: 0.1, far: 220 }}
-      gl={{ alpha: true, antialias: quality === 'low' || xr.active, powerPreference: 'high-performance', preserveDrawingBuffer: true, stencil: false }}
+      gl={{ alpha: true, antialias: quality === 'low' || xr.active, powerPreference: 'high-performance', preserveDrawingBuffer: !adaptiveEnabled(), stencil: false }}
       aria-label="Escena 3D del cultivo: mesa de invernadero con la planta, el suelo en corte, el tanque de agua y la bomba"
       role="img"
     >
@@ -96,6 +107,7 @@ export function Scene({ narrow, quality, onQualityDrop, shiftPx = 0 }: SceneProp
         <FocusRig controls={controls} />
         <AdaptiveRes max={maxDpr} onFloor={onQualityDrop} />
         <Smoother />
+        {quality === 'low' && !xr.active && <FpsCap fps={30} />}
         <Env />
         <Suspense fallback={null}>
           <ArRoot>

@@ -77,7 +77,15 @@ export function useLive(deviceId: string | null): LiveData {
       if (!m || m[1] !== deviceRef.current) return
       const text = payload.toString()
       if (m[2] === 'status') {
-        const t = text.trim().toLowerCase()
+        let t = text.trim().toLowerCase()
+        if (t.startsWith('{')) {
+          try {
+            const j = JSON.parse(t) as { status?: unknown; online?: unknown }
+            t = String(j.status ?? (j.online === true ? 'online' : j.online === false ? 'offline' : '')).toLowerCase()
+          } catch {
+            t = ''
+          }
+        }
         if (t === 'online' || t === 'offline') setStatus(t)
         return
       }

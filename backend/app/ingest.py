@@ -36,6 +36,7 @@ def resolve_ts(device_id: str, ts: float | None, now: float | None = None) -> da
     - Sin ts, o ts incoherente con el servidor -> hora del servidor.
     - ts cercano al reloj del servidor (NTP del ESP32) -> se respeta.
     - Dispositivos simulados (prefijo sim-) pueden mandar histórico del pasado.
+    - Dispositivos reales pueden vaciar su cola de hasta device_backdate_max_s (1 h) tras un corte.
     """
     now = time.time() if now is None else now
     use = now
@@ -46,6 +47,9 @@ def resolve_ts(device_id: str, ts: float | None, now: float | None = None) -> da
               and ts <= now + settings.max_clock_skew_seconds
               and now - ts <= settings.backdate_max_days * 86400):
             use = ts
+        elif (ts <= now + settings.max_clock_skew_seconds
+              and now - ts <= settings.device_backdate_max_s):
+            use = ts        # cola del dispositivo tras un corte (cambio de puerto, WiFi...)
     return datetime.fromtimestamp(use, tz=timezone.utc)
 
 
@@ -92,11 +96,25 @@ async def handle_telemetry(app, device_id: str, payload: bytes) -> None:
     await process_telemetry(app, device_id, t)
 
 
+def parse_status(payload: bytes) -> str:
+    """Acepta 'online'/'offline' en texto plano o JSON tipo {"status":"online"} (como manda el firmware de pruebas)."""
+    text = payload.decode("utf-8", "replace").strip()
+    if text.startswith("{"):
+        try:
+            data = json.loads(text)
+            text = str(data.get("status", data.get("online", ""))) if isinstance(data, dict) else ""
+        except ValueError:
+            return ""
+        if text.lower() in ("true", "false"):
+            text = "online" if text.lower() == "true" else "offline"
+    return text.strip().strip('"').lower()
+
+
 async def handle_status(app, device_id: str, payload: bytes) -> None:
     pool: asyncpg.Pool = app.state.pool
     if await ensure_device(pool, device_id) is None:
         return
-    text = payload.decode("utf-8", "replace").strip().lower()
+    text = parse_status(payload)
     if text not in ("online", "offline"):
         log.warning("status inválido de %s: %r", device_id, text[:40])
         return

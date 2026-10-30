@@ -4,7 +4,7 @@ import { Header, type Mode } from './components/Header'
 import { LivePanel } from './components/LivePanel'
 import { MobileShell } from './components/MobileShell'
 import { SimPanel } from './components/SimPanel'
-import { DEFAULT_DEVICE } from './config'
+import { DEFAULT_DEVICE, MISCONFIGURED } from './config'
 import { useLive } from './live'
 import { initialQuality, QUALITY_ORDER, saveQuality, type Quality } from './scene/quality'
 import { reducedMotion } from './scene/smooth'
@@ -195,6 +195,11 @@ export default function App() {
 
   return (
     <div className={'app ' + (narrow ? 'shell-mobile' : 'shell-desktop')}>
+      {MISCONFIGURED && (
+        <div className="cfg-warn" role="alert">
+          {MISCONFIGURED}
+        </div>
+      )}
       <div className="scene">
         <Scene narrow={narrow} quality={quality} onQualityDrop={dropQuality} shiftPx={narrow ? 0 : Math.min(400, Math.max(0, winW - 1000) * 0.5 + 220)} />
       </div>

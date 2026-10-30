@@ -7,6 +7,9 @@ class Settings(BaseSettings):
     mqtt_port: int = 1883
     mqtt_user: str = "backend"
     mqtt_password: str
+    # Dirección pública del broker que reciben los ESP32 en GET /mqtt-config (opcional)
+    mqtt_public_host: str | None = None
+    mqtt_public_port: int | None = None
     api_key: str
 
     # Solo se aceptan datos de dispositivos con este formato de id (esp32-01, sim-01...)
@@ -16,6 +19,8 @@ class Settings(BaseSettings):
     # Los dispositivos simulados (prefijo) pueden enviar histórico con ts del pasado
     backdate_prefix: str = "sim-"
     backdate_max_days: int = 60
+    # Dispositivos reales: lecturas con hora (NTP) guardadas durante un corte de conexión se aceptan hasta este atraso
+    device_backdate_max_s: int = 3600
     # Tope de seguridad para un comando de riego (el ESP32 debe aplicar el suyo también)
     pump_max_seconds: int = 120
 

@@ -59,7 +59,7 @@ export function Lights() {
         distance={0}
         color="#ffd6ec"
         intensity={4}
-        castShadow
+        castShadow={quality !== 'low'}
         shadow-mapSize={[spotShadow, spotShadow]}
         shadow-bias={-0.0004}
         shadow-normalBias={0.03}

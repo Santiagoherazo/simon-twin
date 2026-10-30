@@ -224,3 +224,20 @@ def test_telemetry_schema_validation():
             Telemetry.model_validate(bad)
     with pytest.raises(Exception):
         Telemetry.model_validate_json('{"air_t": NaN}')
+
+
+def test_parse_status_acepta_texto_y_json():
+    from app.ingest import parse_status
+    assert parse_status(b"online") == "online"
+    assert parse_status(b" OFFLINE\n") == "offline"
+    assert parse_status(b'{"status":"online","device":"esp32-01"}') == "online"
+    assert parse_status(b'{"status":"offline","device":"esp32-01"}') == "offline"
+    assert parse_status(b'{"online": true}') == "online"
+    assert parse_status(b"{roto") == ""
+
+
+def test_resolve_ts_cola_de_dispositivo_real():
+    now = 1_800_000_000.0
+    assert resolve_ts("esp32-01", now - 900, now).timestamp() == now - 900          # 15 min: se respeta
+    assert resolve_ts("esp32-01", now - 7200, now).timestamp() == now              # 2 h: hora del servidor
+    assert resolve_ts("esp32-01", now + 3600, now).timestamp() == now              # futuro: hora del servidor

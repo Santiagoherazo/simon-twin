@@ -8,7 +8,7 @@ Railpack falla con "Railpack failed to prepare the build". Cada servicio necesit
 |---|---|---|
 | Postgres | plantilla **TimescaleDB** de Railway (recomendado) o Postgres normal | — |
 | mosquitto | `/mosquitto` | `MQTT_BACKEND_PASSWORD`, `MQTT_SIM_PASSWORD`, `MQTT_ESP32_PASSWORD`, `MQTT_VIEWER_PASSWORD` |
-| backend | `/backend` | `DATABASE_URL`, `MQTT_HOST=mosquitto.railway.internal`, `MQTT_PORT=1883`, `MQTT_USER=backend`, `MQTT_PASSWORD`, `API_KEY`, `CORS_ORIGINS` |
+| backend | `/backend` | `MQTT_PUBLIC_HOST` + `MQTT_PUBLIC_PORT` (dirección pública del broker; la sirve `GET /mqtt-config` a los ESP32), `DATABASE_URL`, `MQTT_HOST=mosquitto.railway.internal`, `MQTT_PORT=1883`, `MQTT_USER=backend`, `MQTT_PASSWORD`, `API_KEY`, `CORS_ORIGINS` |
 | frontend | `/frontend` | `VITE_API_URL`, `VITE_MQTT_URL`, `VITE_MQTT_USER=viewer`, `VITE_MQTT_PASS`, `VITE_DEFAULT_DEVICE=sim-01` |
 | simulator (opcional) | `/simulator` | `MQTT_HOST=mosquitto.railway.internal`, `MQTT_PASSWORD` (= `MQTT_SIM_PASSWORD`), `DEVICE_ID=sim-01` |
 

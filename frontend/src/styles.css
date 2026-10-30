@@ -1246,3 +1246,7 @@ code {
 .card .spark-meta {
   color: var(--ink-2);
 }
+
+/* aviso cuando la app se compiló apuntando a 127.0.0.1 */
+.cfg-warn { position: fixed; z-index: 50; left: 12px; right: 12px; top: max(12px, env(safe-area-inset-top)); padding: 10px 14px;
+  border-radius: 14px; background: #fff1f0; color: #8a1c13; border: 1px solid #f3b8b2; font: 600 13px/1.35 inherit; box-shadow: 0 6px 20px rgba(0,0,0,.18); }
