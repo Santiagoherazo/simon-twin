@@ -1,3 +1,5 @@
+import { phys, PhysMat, StdMat, SIMPLE, std } from './mat'
+import { useQuality } from './quality'
 import { useEffect, useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
@@ -52,7 +54,7 @@ function Roots() {
       mk([[-0.2, -0.3], [-0.5, -0.45], [-0.95, -0.6]], 0.012),
       mk([[0.2, -0.3], [0.55, -0.42], [0.95, -0.58]], 0.012),
     ]
-    const mat = new THREE.MeshStandardMaterial({ color: '#efe4c4', roughness: 0.9 })
+    const mat = std({ color: '#efe4c4', roughness: 0.9 })
     return { geos, mat }
   }, [])
   useEffect(
@@ -111,22 +113,22 @@ function Probe() {
       {/* placa del sensor capacitivo */}
       <mesh position={[PROBE_POS[0], (PROBE_Y0 + PROBE_Y1) / 2, PROBE_POS[2]]} castShadow>
         <boxGeometry args={[0.3, PROBE_Y1 - PROBE_Y0, 0.045]} />
-        <meshStandardMaterial color="#1f5a3c" roughness={0.5} metalness={0.2} />
+        <StdMat color="#1f5a3c" roughness={0.5} metalness={0.2} />
       </mesh>
       <mesh position={[PROBE_POS[0], PROBE_Y1 - 0.18, PROBE_POS[2] + 0.026]}>
         <boxGeometry args={[0.2, 0.2, 0.012]} />
-        <meshStandardMaterial color="#d8d8d0" roughness={0.4} metalness={0.6} />
+        <StdMat color="#d8d8d0" roughness={0.4} metalness={0.6} />
       </mesh>
       <sprite ref={glow} position={[PROBE_POS[0], 1.3, PROBE_POS[2] + 0.1]}>
         <spriteMaterial map={tex} transparent depthWrite={false} blending={THREE.AdditiveBlending} color="#5be08f" />
       </sprite>
       <mesh geometry={cable}>
-        <meshStandardMaterial color="#222a31" roughness={0.6} />
+        <StdMat color="#222a31" roughness={0.6} />
       </mesh>
       {/* caja del microcontrolador */}
       <mesh position={CONTROLLER_POS} castShadow>
         <boxGeometry args={[0.95, 0.36, 0.58]} />
-        <meshStandardMaterial color="#1c3350" roughness={0.45} />
+        <StdMat color="#1c3350" roughness={0.45} />
       </mesh>
       <mesh position={[CONTROLLER_POS.x + 0.3, CONTROLLER_POS.y + 0.19, CONTROLLER_POS.z + 0.1]}>
         <sphereGeometry args={[0.035, 10, 8]} />
@@ -175,7 +177,7 @@ function TopStones() {
   return (
     <instancedMesh ref={mesh} args={[undefined, undefined, N]} castShadow receiveShadow>
       <icosahedronGeometry args={[1, 1]} />
-      <meshStandardMaterial roughness={0.85} />
+      <StdMat roughness={0.85} />
     </instancedMesh>
   )
 }
@@ -298,7 +300,7 @@ function GrowLamp() {
     return g
   }, [])
   const poleGeo = useMemo(() => rb(0.34, 1, 0.3, 0.1), [])
-  const black = useMemo(() => new THREE.MeshPhysicalMaterial({ color: '#08090a', roughness: 0.3, clearcoat: 0.6, clearcoatRoughness: 0.18, envMapIntensity: 0.9 }), [])
+  const black = useMemo(() => phys({ color: '#08090a', roughness: 0.3, clearcoat: 0.6, clearcoatRoughness: 0.18, envMapIntensity: 0.9 }), [])
   useEffect(
     () => () => {
       tex.dispose()
@@ -335,7 +337,7 @@ function GrowLamp() {
         <mesh geometry={poleGeo} material={black} position={[POLE.x, 0.0, POLE.z + 0.05]} scale={[1.5, 0.3, 1.3]} castShadow />
         <mesh position={[0, -0.0625, 0]} rotation-x={Math.PI / 2}>
           <planeGeometry args={[5.0, LAMP_D - 0.35]} />
-          <meshStandardMaterial ref={led} map={tex} emissiveMap={tex} emissive="#ffffff" emissiveIntensity={2} color="#111" roughness={0.4} toneMapped={false} />
+          <StdMat ref={led} map={tex} emissiveMap={tex} emissive="#ffffff" emissiveIntensity={2} color="#111" roughness={0.4} toneMapped={false} />
         </mesh>
         <mesh position={[0, 0.0, (LAMP_D - 0.1) / 2 + 0.012]}>
           <boxGeometry args={[1.1, 0.04, 0.02]} />
@@ -348,9 +350,9 @@ function GrowLamp() {
 
 // ---------- follaje denso (decorativo) ----------
 /** Hoja ovada con nervio central, punta y concavidad, como la albahaca. */
-function ovateLeaf() {
-  const NU = 6
-  const NT = 10
+function ovateLeaf(detail: 0 | 1 | 2) {
+  const NU = [2, 4, 6][detail]
+  const NT = [4, 7, 10][detail]
   const pos: number[] = []
   const uv: number[] = []
   const idx: number[] = []
@@ -379,7 +381,7 @@ function ovateLeaf() {
 }
 
 const roundLeaf = (() => {
-  const g = new THREE.CircleGeometry(0.5, 20)
+  const g = new THREE.CircleGeometry(0.5, SIMPLE ? 8 : 20)
   g.scale(0.9, 1, 1)
   g.translate(0, 0.5, 0)
   const p = g.attributes.position
@@ -417,7 +419,8 @@ function Herbs() {
   const round = useRef<THREE.InstancedMesh>(null)
   const fruit = useRef<THREE.InstancedMesh>(null)
   const leaf = useMemo(() => assets.leaf('tomato'), [])
-  const geo = useMemo(() => ovateLeaf(), [])
+  const q = useQuality()
+  const geo = useMemo(() => ovateLeaf(q === 'low' ? 0 : q === 'medium' ? 1 : 2), [q])
   useEffect(() => () => geo.dispose(), [geo])
   const nBasil = BUSHES.filter((b) => !b.round).reduce((a, b) => a + b.n, 0)
   const nRound = BUSHES.filter((b) => b.round).reduce((a, b) => a + b.n, 0)
@@ -472,7 +475,7 @@ function Herbs() {
     }
   }, [])
   const mat = (
-    <meshStandardMaterial map={leaf.map} normalMap={leaf.normalMap} roughnessMap={leaf.roughnessMap} roughness={0.62} side={THREE.DoubleSide} envMapIntensity={1} />
+    <StdMat map={leaf.map} normalMap={leaf.normalMap} roughnessMap={leaf.roughnessMap} roughness={0.62} side={THREE.DoubleSide} envMapIntensity={1} />
   )
   return (
     <>
@@ -483,8 +486,8 @@ function Herbs() {
         {mat}
       </instancedMesh>
       <instancedMesh ref={fruit} args={[undefined, undefined, 12]} castShadow>
-        <sphereGeometry args={[1, 18, 12]} />
-        <meshPhysicalMaterial color="#dc2a1a" roughness={0.28} clearcoat={0.9} clearcoatRoughness={0.2} />
+        <sphereGeometry args={q === 'low' ? [1, 10, 7] : [1, 18, 12]} />
+        <PhysMat color="#dc2a1a" roughness={0.28} clearcoat={0.9} clearcoatRoughness={0.2} />
       </instancedMesh>
     </>
   )
@@ -506,11 +509,11 @@ function Gauge() {
     <group>
       <mesh position={[mid, (GAUGE_Y0 + GAUGE_Y1) / 2, FRONT_Z - 0.1]}>
         <boxGeometry args={[GAUGE_X1 - GAUGE_X0 + 0.04, H + 0.12, 0.1]} />
-        <meshStandardMaterial color="#eef3f5" roughness={0.5} />
+        <StdMat color="#eef3f5" roughness={0.5} />
       </mesh>
       <mesh ref={water} position={[mid, GAUGE_Y0 + 0.3, FRONT_Z - 0.03]}>
         <boxGeometry args={[GAUGE_X1 - GAUGE_X0 - 0.08, 1, 0.07]} />
-        <meshPhysicalMaterial color="#4fa9e8" emissive="#1470b8" emissiveIntensity={0.35} roughness={0.1} clearcoat={1} />
+        <PhysMat color="#4fa9e8" emissive="#1470b8" emissiveIntensity={0.35} roughness={0.1} clearcoat={1} />
       </mesh>
       {[0, 1, 2, 3, 4].map((k) => (
         <mesh key={k} position={[GAUGE_X1 - 0.12, GAUGE_Y0 + (H * k) / 4, PLANTER_D / 2 + 0.04]}>
@@ -520,7 +523,7 @@ function Gauge() {
       ))}
       <mesh position={[mid, (GAUGE_Y0 + GAUGE_Y1) / 2, PLANTER_D / 2 + 0.005]}>
         <planeGeometry args={[GAUGE_X1 - GAUGE_X0, H]} />
-        <meshPhysicalMaterial color="#ffffff" transparent opacity={0.12} roughness={0.04} clearcoat={1} depthWrite={false} />
+        <PhysMat color="#ffffff" transparent opacity={0.12} roughness={0.04} clearcoat={1} depthWrite={false} />
       </mesh>
     </group>
   )
@@ -529,8 +532,8 @@ function Gauge() {
 export function Planter() {
   const soil = useMemo(() => assets.soil(), [])
   const gravel = useMemo(() => assets.gravel(), [])
-  const plastic = useMemo(() => new THREE.MeshPhysicalMaterial({ color: '#08090a', roughness: 0.3, clearcoat: 0.6, clearcoatRoughness: 0.18, envMapIntensity: 0.9 }), [])
-  const trim = useMemo(() => new THREE.MeshPhysicalMaterial({ color: '#2a3034', roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.15, envMapIntensity: 1.4 }), [])
+  const plastic = useMemo(() => phys({ color: '#08090a', roughness: 0.3, clearcoat: 0.6, clearcoatRoughness: 0.18, envMapIntensity: 0.9 }), [])
+  const trim = useMemo(() => phys({ color: '#2a3034', roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.15, envMapIntensity: 1.4 }), [])
   const geo = useMemo(
     () => ({
       body: bodyGeometry(),
@@ -563,7 +566,7 @@ export function Planter() {
     }
   })
   const soilMat = (i: number) => (
-    <meshStandardMaterial
+    <StdMat
       ref={(el) => (layerMats.current[i] = el)}
       map={soil.map}
       normalMap={soil.normalMap}
@@ -588,7 +591,7 @@ export function Planter() {
       {/* grava + capas de suelo (solo hasta la columna de agua) */}
       <mesh position={[wMid, BASE + GRAVEL_H / 2, zMid]} receiveShadow>
         <boxGeometry args={[wLen, GRAVEL_H, SOIL_DEPTH]} />
-        <meshStandardMaterial map={gravel.map} normalMap={gravel.normalMap} roughnessMap={gravel.roughnessMap} normalScale={new THREE.Vector2(1.3, 1.3)} roughness={1} />
+        <StdMat map={gravel.map} normalMap={gravel.normalMap} roughnessMap={gravel.roughnessMap} normalScale={new THREE.Vector2(1.3, 1.3)} roughness={1} />
       </mesh>
       {Array.from({ length: LAYERS - 1 }, (_, i) => (
         <mesh key={i} position={[wMid, SOIL_BOTTOM + LAYER_H * (i + 0.5), zMid]} receiveShadow>
@@ -603,7 +606,7 @@ export function Planter() {
       {/* fondo oscuro tras la columna de agua */}
       <mesh position={[(LX1 + 2.62) / 2, 1.1, zMid]}>
         <boxGeometry args={[2.62 - LX1, 1.45, SOIL_DEPTH - 0.04]} />
-        <meshStandardMaterial color="#0b0f12" roughness={0.8} />
+        <StdMat color="#0b0f12" roughness={0.8} />
       </mesh>
       {/* boca de llenado */}
       <group position={[2.35, RIM_Y + 0.02, 0.6]}>
@@ -612,7 +615,7 @@ export function Planter() {
         </mesh>
         <mesh position={[0, 0.075, 0]}>
           <cylinderGeometry args={[0.18, 0.18, 0.02, 28]} />
-          <meshStandardMaterial color="#05080a" roughness={0.5} />
+          <StdMat color="#05080a" roughness={0.5} />
         </mesh>
       </group>
 

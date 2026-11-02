@@ -1,3 +1,4 @@
+import { PhysMat, StdMat } from './mat'
 import { useEffect, useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
@@ -58,7 +59,7 @@ function Hose() {
   return (
     <group>
       <mesh geometry={delivery} castShadow>
-        <meshStandardMaterial color="#20282e" roughness={0.6} />
+        <StdMat color="#20282e" roughness={0.6} />
       </mesh>
       <mesh geometry={overlay}>
         <meshBasicMaterial ref={overlayMat} map={flow} color="#8fd0ff" transparent opacity={0} depthWrite={false} />
@@ -66,7 +67,7 @@ function Hose() {
       {/* boquilla */}
       <mesh position={[NOZZLE[0], NOZZLE[1] - 0.1, NOZZLE[2]]}>
         <coneGeometry args={[0.09, 0.2, 10]} />
-        <meshStandardMaterial color="#8da2b0" metalness={0.6} roughness={0.35} />
+        <StdMat color="#8da2b0" metalness={0.6} roughness={0.35} />
       </mesh>
     </group>
   )
@@ -106,7 +107,7 @@ function Drops() {
   return (
     <instancedMesh ref={mesh} args={[undefined, undefined, DROPS]} frustumCulled={false}>
       <sphereGeometry args={[0.04, 8, 6]} />
-      <meshPhysicalMaterial color="#cfeaff" emissive="#3d9ad6" emissiveIntensity={0.25} transparent opacity={0.85} roughness={0.05} clearcoat={1} envMapIntensity={1.6} />
+      <PhysMat color="#cfeaff" emissive="#3d9ad6" emissiveIntensity={0.25} transparent opacity={0.85} roughness={0.05} clearcoat={1} envMapIntensity={1.6} />
     </instancedMesh>
   )
 }

@@ -1,3 +1,4 @@
+import { phys, std } from './mat'
 import { useEffect, useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
@@ -38,7 +39,7 @@ function useDisposables<T extends { dispose(): void }>(items: T[]) {
 /** Tallo con estrías (maíz) o con pelusilla fina (tomate): reutiliza el relieve de la hoja. */
 function stemMaterial(kind: 'maize' | 'tomato', color: string) {
   const p = withRepeat(assets.leaf(kind), kind === 'maize' ? 5 : 3, 2.5)
-  return new THREE.MeshPhysicalMaterial({
+  return phys({
     color,
     map: p.map,
     normalMap: p.normalMap,
@@ -213,13 +214,13 @@ function Maize({ n, tassel, ears }: { n: number; tassel: boolean; ears: boolean 
   const leafMat = useMemo(() => leafMaterial(assets.leaf('maize')), [])
   const stemMat = useMemo(() => stemMaterial('maize', '#7fae52'), [])
   const stemGeo = useMemo(() => new THREE.CylinderGeometry(0.07, 0.11, 1, 10).translate(0, 0.5, 0), [])
-  const tasselMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#d9c56b', roughness: 0.8 }), [])
+  const tasselMat = useMemo(() => std({ color: '#d9c56b', roughness: 0.8 }), [])
   const branchGeo = useMemo(() => new THREE.CylinderGeometry(0.01, 0.022, 0.9, 5), [])
   const spikeGeo = useMemo(() => new THREE.CylinderGeometry(0.02, 0.045, 1.15, 6), [])
   const earGeo = useMemo(() => new THREE.CapsuleGeometry(0.17, 0.66, 4, 10), [])
-  const earMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#9ccb68', roughness: 0.65 }), [])
+  const earMat = useMemo(() => std({ color: '#9ccb68', roughness: 0.65 }), [])
   const silkGeo = useMemo(() => new THREE.ConeGeometry(0.07, 0.3, 6), [])
-  const silkMat = useMemo(() => new THREE.MeshStandardMaterial({ color: '#b98a52', roughness: 0.9 }), [])
+  const silkMat = useMemo(() => std({ color: '#b98a52', roughness: 0.9 }), [])
   useDisposables(geos)
   useDisposables(useMemo(() => [leafMat, stemMat, stemGeo, tasselMat, branchGeo, spikeGeo, earGeo, earMat, silkGeo, silkMat], [leafMat, stemMat, stemGeo, tasselMat, branchGeo, spikeGeo, earGeo, earMat, silkGeo, silkMat]))
 
@@ -309,7 +310,7 @@ function Tomato({ n, fruit }: { n: number; fruit: boolean }) {
   const stemMat = useMemo(() => stemMaterial('tomato', '#6f9f48'), [])
   const stemGeo = useMemo(() => new THREE.CylinderGeometry(0.05, 0.085, 1, 8).translate(0, 0.5, 0), [])
   const fruitGeo = useMemo(() => new THREE.SphereGeometry(0.3, 16, 12), [])
-  const fruitMats = useMemo(() => ['#d8372a', '#e87a2c', '#86b43f'].map((c) => new THREE.MeshPhysicalMaterial({ color: c, roughness: 0.32, clearcoat: 0.7, clearcoatRoughness: 0.18 })), [])
+  const fruitMats = useMemo(() => ['#d8372a', '#e87a2c', '#86b43f'].map((c) => phys({ color: c, roughness: 0.32, clearcoat: 0.7, clearcoatRoughness: 0.18 })), [])
   useDisposables(geos)
   useDisposables(useMemo(() => [leafMat, stemMat, stemGeo, fruitGeo, ...fruitMats], [leafMat, stemMat, stemGeo, fruitGeo, fruitMats]))
 

@@ -24,7 +24,7 @@ export function Lights() {
       sun.current.intensity = 0.04 + 3.1 * d
       sun.current.color.set('#ffe3bd').lerp(new THREE.Color('#fff7ea'), d)
     }
-    if (hemi.current) hemi.current.intensity = 0.22 + 0.2 * d
+    if (hemi.current) hemi.current.intensity = quality === 'low' ? 0.75 + 0.35 * d : 0.22 + 0.2 * d
     const sp = spot.current
     if (sp) {
       sp.position.set(0, lamp.y - 0.12, 0.1)
@@ -39,7 +39,7 @@ export function Lights() {
         ref={sun}
         position={SUN_POS}
         intensity={2}
-        castShadow
+        castShadow={quality !== 'low'}
         shadow-mapSize={[shadowSize, shadowSize]}
         shadow-camera-left={-11}
         shadow-camera-right={11}

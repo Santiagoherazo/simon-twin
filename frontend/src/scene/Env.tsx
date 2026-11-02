@@ -6,6 +6,7 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import { sm } from './smooth'
 import { backdropTexture } from './textures'
 import { getXr } from '../xr'
+import { useQuality } from './quality'
 
 // Entorno real (HDRI incluido en el paquete: no hay descargas): da reflejos y luz ambiente creíbles y,
 // difuminado, es lo que se ve a través del cristal. Mientras carga se usa un cuarto procedural.
@@ -26,10 +27,19 @@ function loadExr(url: string): Promise<THREE.Texture> {
 
 export function Env() {
   const { scene, gl } = useThree()
+  const low = useQuality() === 'low'
   const maps = useRef<Maps | null>(null)
   const shown = useRef<'room' | 'day' | 'night'>('room')
 
   useEffect(() => {
+    if (low) {
+      // Celular/APK: sin HDRI ni PMREM (los materiales Lambert/Phong no usan el mapa de entorno); solo un fondo de color
+      scene.environment = null
+      scene.background = new THREE.Color('#e9e6df')
+      return () => {
+        scene.background = null
+      }
+    }
     const pm = new THREE.PMREMGenerator(gl)
     const room = new RoomEnvironment()
     const roomTex = pm.fromScene(room, 0.04).texture
@@ -65,9 +75,16 @@ export function Env() {
       room.dispose()
       pm.dispose()
     }
-  }, [gl, scene])
+  }, [gl, scene, low])
 
+  const dayCol = useRef(new THREE.Color('#e9e6df'))
+  const nightCol = useRef(new THREE.Color('#161a22'))
   useFrame(() => {
+    if (low) {
+      if (scene.background instanceof THREE.Color) scene.background.copy(nightCol.current).lerp(dayCol.current, sm.day)
+      scene.environmentIntensity = 0.45 + 0.4 * sm.day
+      return
+    }
     const m = maps.current
     if (!m) return
     if (getXr().active) {

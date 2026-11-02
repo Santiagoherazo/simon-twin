@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useRef } from 'react'
+import { Suspense, useEffect, useMemo, useRef } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
@@ -21,8 +21,10 @@ import { WaterSystem } from './WaterSystem'
 function ToneSwitch({ quality, force }: { quality: Quality; force: boolean }) {
   const { gl, scene } = useThree()
   useEffect(() => {
-    gl.toneMapping = quality === 'low' || force ? THREE.NeutralToneMapping : THREE.NoToneMapping
+    const target = quality === 'low' || force ? THREE.NeutralToneMapping : THREE.NoToneMapping
     gl.toneMappingExposure = 1
+    if (gl.toneMapping === target) return   // sin cambio: recompilar todos los materiales sería trabajo perdido
+    gl.toneMapping = target
     scene.traverse((o) => {
       const m = (o as THREE.Mesh).material
       if (Array.isArray(m)) m.forEach((x) => (x.needsUpdate = true))
@@ -30,6 +32,69 @@ function ToneSwitch({ quality, force }: { quality: Quality; force: boolean }) {
     })
   }, [gl, scene, quality, force])
   return null
+}
+
+/** Solo con ?debug: expone el renderer para medir triángulos, texturas y programas desde las pruebas. */
+function DebugHook() {
+  const gl = useThree((s) => s.gl)
+  const scene = useThree((s) => s.scene)
+  useEffect(() => {
+    const sp = new URLSearchParams(location.search)
+    if (sp.has('debug') || sp.has('perf')) {
+      ;(window as unknown as { __gl: unknown; __scene: unknown }).__gl = gl
+      ;(window as unknown as { __scene: unknown }).__scene = scene
+    }
+  }, [gl, scene])
+  return null
+}
+
+/** Con ?fps muestra fps reales, calidad, resolución, triángulos y cuánto tardó el primer cuadro (para medir en el celular). */
+function FpsHud({ quality }: { quality: Quality }) {
+  const gl = useThree((s) => s.gl)
+  const st = useRef({ n: 0, t: performance.now(), first: 0, el: null as HTMLDivElement | null })
+  useEffect(() => {
+    const el = document.createElement('div')
+    el.style.cssText = 'position:fixed;z-index:60;left:6px;top:calc(env(safe-area-inset-top) + 56px);padding:4px 8px;border-radius:8px;background:rgba(0,0,0,.65);color:#fff;font:600 11px/1.3 monospace;pointer-events:none;white-space:pre'
+    document.body.appendChild(el)
+    st.current.el = el
+    return () => el.remove()
+  }, [])
+  useFrame(() => {
+    const a = st.current
+    if (!a.first) a.first = performance.now()
+    a.n++
+    const now = performance.now()
+    if (now - a.t >= 1000 && a.el) {
+      const fps = Math.round((a.n * 1000) / (now - a.t))
+      a.el.textContent = `${fps} fps · ${quality} · dpr ${gl.getPixelRatio().toFixed(2)}\n${Math.round(gl.info.render.triangles / 1000)}k tri · ${gl.info.programs?.length ?? 0} shaders\n1er cuadro ${(a.first / 1000).toFixed(1)} s`
+      a.n = 0
+      a.t = now
+    }
+  })
+  return null
+}
+
+/** Sombra falsa (mancha oscura difusa) bajo la matera: sustituye al mapa de sombras en calidad baja. */
+function BlobShadow() {
+  const tex = useMemo(() => {
+    const c = document.createElement('canvas')
+    c.width = c.height = 64
+    const ctx = c.getContext('2d')!
+    const g = ctx.createRadialGradient(32, 32, 4, 32, 32, 32)
+    g.addColorStop(0, 'rgba(20,14,8,0.75)')
+    g.addColorStop(0.55, 'rgba(20,14,8,0.4)')
+    g.addColorStop(1, 'rgba(20,14,8,0)')
+    ctx.fillStyle = g
+    ctx.fillRect(0, 0, 64, 64)
+    return new THREE.CanvasTexture(c)
+  }, [])
+  useEffect(() => () => tex.dispose(), [tex])
+  return (
+    <mesh rotation-x={-Math.PI / 2} position={[0.1, 0.02, 0.1]} renderOrder={1}>
+      <planeGeometry args={[8.2, 4.4]} />
+      <meshBasicMaterial map={tex} transparent depthWrite={false} toneMapped={false} />
+    </mesh>
+  )
 }
 
 /** En calidad baja dibuja a 30 fps (frameloop por demanda): menos calor y batería en el celular. */
@@ -93,11 +158,17 @@ export function Scene({ narrow, quality, onQualityDrop, shiftPx = 0 }: SceneProp
   const maxDpr = quality === 'high' ? 2 : quality === 'medium' ? 1.5 : 1.25
   return (
     <Canvas
-      shadows={quality === 'low' ? true : 'soft'}
+      shadows={quality === 'low' ? false : 'soft'}
       frameloop={quality === 'low' && !xr.active ? 'demand' : 'always'}
       dpr={[1, maxDpr]}
       camera={{ position: narrow ? [11.5, 7.8, 20.5] : [9.8, 7.6, 16.8], fov: narrow ? 46 : 36, near: 0.1, far: 220 }}
       gl={{ alpha: true, antialias: quality === 'low' || xr.active, powerPreference: 'high-performance', preserveDrawingBuffer: !adaptiveEnabled(), stencil: false }}
+      onCreated={({ gl }) => {
+        gl.toneMapping = quality === 'low' ? THREE.NeutralToneMapping : THREE.NoToneMapping
+        // Three consulta el estado de cada shader justo al enlazarlo, lo que bloquea el hilo principal hasta que la GPU termina.
+        // Sin esa consulta el navegador compila los shaders en paralelo (KHR_parallel_shader_compile) y la interfaz no se congela.
+        if (!new URLSearchParams(location.search).has('debug')) gl.debug.checkShaderErrors = false
+      }}
       aria-label="Escena 3D del cultivo: mesa de invernadero con la planta, el suelo en corte, el tanque de agua y la bomba"
       role="img"
     >
@@ -107,6 +178,8 @@ export function Scene({ narrow, quality, onQualityDrop, shiftPx = 0 }: SceneProp
         <FocusRig controls={controls} />
         <AdaptiveRes max={maxDpr} onFloor={onQualityDrop} />
         <Smoother />
+        <DebugHook />
+        {new URLSearchParams(location.search).has('fps') && <FpsHud quality={quality} />}
         {quality === 'low' && !xr.active && <FpsCap fps={30} />}
         <Env />
         <Suspense fallback={null}>
@@ -114,6 +187,7 @@ export function Scene({ narrow, quality, onQualityDrop, shiftPx = 0 }: SceneProp
             <Lights />
             {!xr.active && <Room />}
             {!xr.active && <Bench />}
+            {quality === 'low' && !xr.active && <BlobShadow />}
             {xr.active && (
               <mesh rotation-x={-Math.PI / 2} position-y={0.01} receiveShadow>
                 <planeGeometry args={[60, 60]} />

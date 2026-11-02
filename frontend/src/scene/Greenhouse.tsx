@@ -1,3 +1,4 @@
+import { std } from './mat'
 import { useEffect, useMemo } from 'react'
 import * as THREE from 'three'
 import { FLOOR_Y } from './layout'
@@ -28,7 +29,7 @@ export function Greenhouse() {
         side: THREE.DoubleSide,
         depthWrite: false,
       }),
-      frame: new THREE.MeshStandardMaterial({ color: '#c3cbd0', roughness: 0.34, metalness: 0.85, envMapIntensity: 1.3 }),
+      frame: std({ color: '#c3cbd0', roughness: 0.34, metalness: 0.85, envMapIntensity: 1.3 }),
     }),
     [],
   )

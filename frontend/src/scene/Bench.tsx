@@ -1,3 +1,4 @@
+import { phys, StdMat } from './mat'
 import { useEffect, useMemo } from 'react'
 import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
@@ -39,7 +40,7 @@ export function Bench() {
         [-1, 1].map((sz) => (
           <mesh key={`${sx}${sz}`} position={[sx * xs, LEG_TOP - LEG_H / 2, sz * zs]} castShadow>
             <boxGeometry args={[LEG, LEG_H, LEG]} />
-            <meshStandardMaterial {...metal} />
+            <StdMat {...metal} />
           </mesh>
         )),
       )}
@@ -47,13 +48,13 @@ export function Bench() {
       {[-1, 1].map((sz) => (
         <mesh key={`f${sz}`} position={[0, FLOOR_Y + 1.4, sz * zs]} castShadow>
           <boxGeometry args={[xs * 2, 0.18, 0.18]} />
-          <meshStandardMaterial {...metal} />
+          <StdMat {...metal} />
         </mesh>
       ))}
       {[-1, 1].map((sx) => (
         <mesh key={`s${sx}`} position={[sx * xs, FLOOR_Y + 1.4, 0]} castShadow>
           <boxGeometry args={[0.18, 0.18, zs * 2]} />
-          <meshStandardMaterial {...metal} />
+          <StdMat {...metal} />
         </mesh>
       ))}
       <mesh position={[0, FLOOR_Y, (FLOOR_Z0 + FLOOR_Z1) / 2]} rotation-x={-Math.PI / 2} receiveShadow material={floor}>
@@ -115,7 +116,7 @@ export function BackBench({ position, rot = 0, seed = 0 }: { position: [number, 
       potGeo: new THREE.CylinderGeometry(0.55, 0.42, 0.7, 14),
       bladeGeo: blades.geometry,
       potMat: pbrMaterial(withRepeat(assets.terracotta(), 2, 1), { normalScale: 1.2 }),
-      leafMat: new THREE.MeshPhysicalMaterial({
+      leafMat: phys({
         map: leaf.map,
         normalMap: leaf.normalMap,
         roughnessMap: leaf.roughnessMap,
@@ -148,7 +149,7 @@ export function BackBench({ position, rot = 0, seed = 0 }: { position: [number, 
         [-1, 1].map((sz) => (
           <mesh key={`${sx}${sz}`} position={[sx * 4.1, (LEG_TOP + FLOOR_Y) / 2, sz * 1.2]}>
             <boxGeometry args={[0.28, LEG_H, 0.28]} />
-            <meshStandardMaterial {...metal} />
+            <StdMat {...metal} />
           </mesh>
         )),
       )}

@@ -86,3 +86,9 @@ El frontend está envuelto con Capacitor (`frontend/android`). GitHub Actions co
 ## Despliegue en Railway
 
 Ver [docs/railway.md](docs/railway.md): un servicio por carpeta (Root Directory), variables y puertos.
+
+## Rendimiento en celular (gama media y baja)
+En APK/celular la calidad empieza en **Baja** y la escena pasa a un modo ligero: materiales Lambert/Phong en vez de PBR (sin mapas de normales ni clearcoat), sin HDRI ni PMREM (fondo de color), **sin mapas de sombras** (una mancha de sombra falsa bajo la matera), texturas procedurales de 128–256 px, hojas con menos triángulos, 30 fps y sin recompilar shaders al arrancar. El PC (Alta) y las tabletas (Media) no cambian.
+
+Medido en Chromium con la CPU 4× más lenta y render por software (no es un celular real): bloqueo del hilo principal al cargar **16 s → 2,2 s**, mayor congelamiento 8 s → 1 s, shaders 40 → 14, texturas 31 → 10, triángulos 82 k → 37 k.
+Los materiales se deciden al cargar: si cambias la calidad a mano, recarga. `?fps` muestra fps, resolución, triángulos, shaders y tiempo del primer cuadro (úsalo en el celular); `?perf` expone el renderer para medir.

@@ -1,3 +1,4 @@
+import { phys, std } from './mat'
 import * as THREE from 'three'
 import type { PbrSet } from './pbr'
 
@@ -19,7 +20,7 @@ void RE_Direct_Leaf( const in IncidentLight dl, const in vec3 geometryPosition, 
 `
 
 export function leafMaterial(pbr: PbrSet, opts: { roughness?: number; side?: THREE.Side } = {}) {
-  const m = new THREE.MeshPhysicalMaterial({
+  const m = phys({
     vertexColors: true,
     side: opts.side ?? THREE.DoubleSide,
     map: pbr.map,
@@ -44,7 +45,7 @@ export function pbrMaterial(
   pbr: PbrSet,
   o: { color?: THREE.ColorRepresentation; roughness?: number; normalScale?: number; envMapIntensity?: number } = {},
 ) {
-  return new THREE.MeshStandardMaterial({
+  return std({
     map: pbr.map,
     normalMap: pbr.normalMap,
     normalScale: new THREE.Vector2(o.normalScale ?? 1, o.normalScale ?? 1),
@@ -57,7 +58,7 @@ export function pbrMaterial(
 
 /** Vidrio de reflejos limpios (sin transmisión: así deja ver el contenido sin pases extra). */
 export function glassMaterial(opacity = 0.14) {
-  return new THREE.MeshPhysicalMaterial({
+  return phys({
     color: '#e9f6fb',
     transparent: true,
     opacity,
