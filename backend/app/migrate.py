@@ -33,6 +33,10 @@ async def migrate(pool: asyncpg.Pool) -> bool:
         await con.execute("SELECT pg_advisory_lock($1)", LOCK_ID)
         try:
             await con.execute(SCHEMA)
+            try:     # evita duplicados cuando una lectura llega por dos caminos (MQTT y Supabase)
+                await con.execute("CREATE UNIQUE INDEX IF NOT EXISTS telemetry_device_ts_uq ON telemetry (device_id, ts)")
+            except asyncpg.UniqueViolationError:
+                log.warning("telemetry tiene filas duplicadas (device_id, ts): no se creó el índice único; límpialas y reinicia")
             available = await con.fetchval("SELECT count(*) FROM pg_available_extensions WHERE name = 'timescaledb'")
             if not available:
                 log.info("TimescaleDB no está disponible: se usa PostgreSQL normal")

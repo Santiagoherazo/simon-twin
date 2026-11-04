@@ -41,6 +41,17 @@ services:
       timeout: 3s
       retries: 20
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # Solo caché (se puede perder): sin persistencia, memoria acotada y expulsión de lo menos usado
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "64mb", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   backend:
     build: ./backend
     restart: unless-stopped
@@ -49,7 +60,12 @@ services:
         condition: service_healthy
       mosquitto:
         condition: service_started
+      redis:
+        condition: service_healthy
     environment:
+      REDIS_URL: redis://redis:6379/0
+      # Respaldo en Supabase (opcional; vacío = desactivado). Ver docs/respaldo-supabase.md
+      SUPABASE_DB_URL: ${SUPABASE_DB_URL:-}
       DATABASE_URL: postgresql://simon:${POSTGRES_PASSWORD}@timescaledb:5432/simon
       MQTT_HOST: mosquitto
       MQTT_PORT: "1883"

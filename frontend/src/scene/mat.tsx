@@ -5,7 +5,7 @@ import { initialQuality } from './quality'
 /** En calidad baja (celulares de gama media/baja y APK) los materiales PBR (Standard/Physical) se cambian por
  *  Lambert (mate) o Phong (brillante): sin mapas de normales/rugosidad ni clearcoat. Compilan mucho más rápido
  *  y cuestan bastante menos por píxel en GPUs Mali/Adreno pequeñas. Se decide al cargar la app. */
-export const SIMPLE = initialQuality() === 'low'
+export const SIMPLE = ['low', 'off'].includes(initialQuality())
 
 const PBR_ONLY = [
   'roughness', 'metalness', 'roughnessMap', 'metalnessMap', 'normalMap', 'normalScale', 'normalMapType', 'envMapIntensity',

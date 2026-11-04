@@ -15,6 +15,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
 from .crops import get_crop, load_profiles
+from .backup import backfill, backup_loop, pending as backup_pending, pull_inbox, restore
+from .backup import drain as backup_drain
+from .cache import Cache, key_hash
 from .migrate import migrate
 from .ingest import ensure_device, mqtt_loop, process_telemetry, telemetry_args
 from .schemas import (
@@ -44,9 +47,16 @@ async def lifespan(app: FastAPI):
     app.state.mqtt = None
     app.state.twin_cache = {}
     app.state.bg_tasks = set()
+    app.state.cache = Cache(settings.redis_url)
+    await app.state.cache.start()
+    app.state.backup = {"enabled": False}
+    app.state.remote_pool = None
     task = asyncio.create_task(mqtt_loop(app))
+    backup_task = asyncio.create_task(backup_loop(app))
     yield
     task.cancel()
+    backup_task.cancel()
+    await app.state.cache.close()
     for t in list(app.state.bg_tasks):
         t.cancel()
     await app.state.pool.close()
@@ -89,7 +99,14 @@ async def health():
         await app.state.pool.fetchval("SELECT 1")
     except Exception:
         db_ok = False
-    return {"db": db_ok, "mqtt": app.state.mqtt is not None}
+    cache = app.state.cache
+    out = {"db": db_ok, "mqtt": app.state.mqtt is not None,
+           "redis": (cache.ok if cache.enabled else None)}
+    bk = dict(app.state.backup)
+    if bk.get("enabled") and db_ok:
+        bk["pending"] = await backup_pending(app.state.pool)
+    out["backup"] = bk if bk.get("enabled") else None
+    return out
 
 
 @app.get("/mqtt-config")
@@ -121,7 +138,8 @@ async def soils():
 # ------------------------------------------------------------------ dispositivos ----------
 
 _PUBLIC_COLS = ("device_id, name, crop, soil_type, vwc_raw_dry, vwc_raw_wet, sowing_date, soil_depth_cm, "
-                "pot_area_cm2, pump_flow_ml_min, online, status_ts, (ingest_key_hash IS NOT NULL) AS has_ingest_key")
+                "pot_area_cm2, pump_flow_ml_min, online, status_ts, local_ip, local_host, fw_version, "
+                "(ingest_key_hash IS NOT NULL) AS has_ingest_key")
 
 
 @app.get("/devices")
@@ -188,6 +206,8 @@ async def update_device(device_id: str, body: DeviceUpdate):
         body.soil_depth_cm, body.pot_area_cm2, body.pump_flow_ml_min,
     )
     app.state.twin_cache.clear()
+    await app.state.cache.delete_prefix(f"state:{device_id}")
+    await app.state.cache.delete_prefix(f"sim:{device_id}:")
     schedule_state_publish(app, device_id)
     return {"ok": True}
 
@@ -249,13 +269,21 @@ async def import_rows(device_id: str, body: ImportBody):
 # ------------------------------------------------------------------ lectura ---------------
 
 @app.get("/devices/{device_id}/latest")
-async def latest(device_id: str):
-    row = await app.state.pool.fetchrow(
-        "SELECT * FROM telemetry WHERE device_id = $1 ORDER BY ts DESC LIMIT 1", device_id
-    )
-    if not row:
-        raise HTTPException(404, "sin datos para ese dispositivo")
-    return dict(row)
+async def latest_reading(device_id: str):
+    async def load():
+        row = await app.state.pool.fetchrow(
+            "SELECT * FROM telemetry WHERE device_id = $1 ORDER BY ts DESC LIMIT 1", device_id
+        )
+        return dict(row) if row else None
+
+    cache = app.state.cache
+    val = await cache.get(f"latest:{device_id}")
+    if val is None:
+        val = await load()
+        if val is None:
+            raise HTTPException(404, "sin datos para ese dispositivo")
+        await cache.set(f"latest:{device_id}", val, 60)      # ingest la invalida con cada lectura nueva
+    return val
 
 
 @app.get("/devices/{device_id}/history")
@@ -267,6 +295,12 @@ async def history(
     """Serie agregada por intervalos. El intervalo sube solo si el rango pediría
     más de 2000 puntos, para no enviar respuestas enormes."""
     bucket = max(bucket_seconds, int(hours * 3600 / 2000) + 1)
+    return await app.state.cache.cached(
+        f"hist:{device_id}:{hours}:{bucket}", settings.cache_history_ttl_s,
+        lambda: _history(device_id, hours, bucket))
+
+
+async def _history(device_id: str, hours: float, bucket: int):
     rows = await app.state.pool.fetch(
         """
         SELECT to_timestamp(floor(extract(epoch FROM ts)::double precision / $3::double precision) * $3::double precision) AS t,
@@ -288,8 +322,11 @@ async def history(
 @app.get("/devices/{device_id}/state")
 async def state(device_id: str):
     """Estado actual del gemelo (el mismo JSON que se publica en simon/<id>/state)."""
-    try:
+    async def produce():
         return await compute_state(app, device_id)
+
+    try:
+        return await app.state.cache.cached(f"state:{device_id}", settings.cache_state_ttl_s, produce)
     except TwinError as e:
         raise HTTPException(404 if "desconocido" in str(e) and "dispositivo" in str(e) else 422, str(e))
 
@@ -298,12 +335,25 @@ async def state(device_id: str):
 async def simulate_endpoint(device_id: str, body: SimulateRequest):
     """What-if: parte del estado actual del suelo (o de overrides) y proyecta la humedad,
     el estrés, la etapa y la planta bajo un clima y un plan de riego/lluvia dados."""
+    cache = app.state.cache
+    # La clave incluye la hora de la última lectura redondeada a 1 min: simulaciones iguales sobre el mismo estado se reutilizan
+    try:
+        latest = await latest_reading(device_id)
+    except HTTPException:
+        latest = None
+    stamp = str(latest["ts"])[:16] if latest and latest.get("ts") else "x"
+    key = f"sim:{device_id}:{stamp}:{key_hash(body.model_dump(mode='json'))}"
+    hit = await cache.get(key)
+    if hit is not None:
+        return hit
     try:
         snap = await take_snapshot(app, device_id)
         ctx = sim_context(snap, body.overrides)
     except TwinError as e:
         raise HTTPException(404 if str(e) == "dispositivo desconocido" else 422, str(e))
-    return simulate(ctx, body)
+    res = simulate(ctx, body)
+    await cache.set(key, res, settings.cache_sim_ttl_s)
+    return res
 
 
 # ------------------------------------------------------------------ control ---------------
@@ -325,3 +375,38 @@ async def pump(device_id: str, body: PumpCommand):
     cmd = {"cmd_id": str(uuid.uuid4()), "seconds": body.seconds, "ts": time.time()}
     await client.publish(f"simon/{device_id}/cmd/pump", payload=json.dumps(cmd), qos=1)
     return cmd
+
+
+@app.post("/admin/backup/backfill", dependencies=[Depends(require_api_key)])
+async def backup_backfill(days: int = Query(30, ge=1, le=3650)):
+    """Encola para Supabase el histórico ya guardado (los duplicados se ignoran)."""
+    if not app.state.backup.get("enabled"):
+        raise HTTPException(409, "el respaldo no está configurado (SUPABASE_DB_URL)")
+    return {"queued": await backfill(app.state.pool, days)}
+
+
+def _remote_or_409():
+    if not app.state.backup.get("enabled"):
+        raise HTTPException(409, "el respaldo no está configurado (SUPABASE_DB_URL)")
+    if app.state.remote_pool is None:
+        raise HTTPException(503, "sin conexión con Supabase por ahora")
+    return app.state.remote_pool
+
+
+@app.post("/admin/sync/run", dependencies=[Depends(require_api_key)])
+async def sync_run():
+    """Una pasada completa ahora mismo (lo mismo que hace el ciclo automático): local -> Supabase y buzón -> local."""
+    remote = _remote_or_409()
+    sent = 0
+    while True:
+        n = await backup_drain(app.state.pool, remote, settings.backup_batch)
+        sent += n
+        if n < settings.backup_batch:
+            break
+    return {"sent_to_supabase": sent, "inbox": await pull_inbox(app, remote, settings.sync_inbox_batch)}
+
+
+@app.post("/admin/sync/restore", dependencies=[Depends(require_api_key)])
+async def sync_restore(days: int = Query(30, ge=1, le=3650)):
+    """Supabase -> base local: recupera lo que falte localmente (recuperación tras perder la base)."""
+    return await restore(app, _remote_or_409(), days)

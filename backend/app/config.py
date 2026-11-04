@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     backdate_prefix: str = "sim-"
     backdate_max_days: int = 60
     # Dispositivos reales: lecturas con hora (NTP) guardadas durante un corte de conexión se aceptan hasta este atraso
-    device_backdate_max_s: int = 3600
+    device_backdate_max_s: int = 86400
     # Tope de seguridad para un comando de riego (el ESP32 debe aplicar el suyo también)
     pump_max_seconds: int = 120
 
@@ -35,6 +35,22 @@ class Settings(BaseSettings):
 
     # El estado del twin se republica como mucho cada tantos segundos por dispositivo
     state_min_interval_s: float = 2.0
+
+    # Caché Redis (opcional). Vacío = sin caché. Ej.: redis://redis:6379/0
+    redis_url: str = ""
+    cache_state_ttl_s: int = 5
+    cache_history_ttl_s: int = 30
+    cache_sim_ttl_s: int = 120
+
+    # Respaldo en Supabase (opcional): cadena de conexión directa a Postgres. Vacío = sin respaldo.
+    # Ej.: postgresql://postgres.xxxx:CLAVE@aws-0-us-east-1.pooler.supabase.com:5432/postgres?sslmode=require
+    supabase_db_url: str = ""
+    backup_batch: int = 500
+    backup_interval_s: float = 10.0
+    backup_outbox_max: int = 500_000
+    # Sincronización inversa: lecturas que el ESP32 deja directo en Supabase (tabla simon_inbox) cuando cae el servidor
+    sync_inbox_batch: int = 200
+    sync_require_device_key: bool = True     # exige la clave de ingesta del dispositivo en cada fila del inbox
 
     # Orígenes del front permitidos por CORS
     cors_origins: list[str] = [

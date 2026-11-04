@@ -215,6 +215,28 @@ export function LivePanel({ deviceId, live }: { deviceId: string | null; live: L
         <div className="skeleton" style={{ width: '80%' }} />
       </div>
     )
+  if (s.local && s.readings && !s.soil) {
+    const r = s.readings
+    const rows: [string, string][] = [
+      ['Humedad', r.vwc_pct != null ? `${r.vwc_pct.toFixed(1)} %` : '–'],
+      ['Suelo', r.soil_t != null ? `${r.soil_t.toFixed(1)} °C` : '–'],
+      ['Aire', r.air_t != null ? `${r.air_t.toFixed(1)} °C · ${r.air_rh ?? '–'} %` : '–'],
+      ['pH', r.ph != null ? String(r.ph) : '–'],
+      ['EC', r.ec != null ? `${r.ec} µS` : '–'],
+      ['Luz', r.lux != null ? `${r.lux} lx` : '–'],
+      ['Bomba', r.pump_on ? 'encendida' : 'apagada'],
+    ]
+    return (
+      <div className="note">
+        <b>Datos locales del ESP32</b>
+        {rows.map(([k, v]) => (
+          <div key={k}>
+            {k}: {v}
+          </div>
+        ))}
+      </div>
+    )
+  }
   if (!s.readings || !s.soil)
     return (
       <div className="note">

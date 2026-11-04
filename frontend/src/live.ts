@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import mqtt, { type MqttClient } from 'mqtt'
 import { MQTT_PASS, MQTT_URL, MQTT_USER } from './config'
 import { getState } from './api'
+import { validLocalHost } from './local'
 import type { Telemetry, TwinState } from './types'
 
 export type MqttStatus = 'connecting' | 'connected' | 'reconnecting'
@@ -18,6 +19,8 @@ export interface LiveData {
   /** Error de la carga REST inicial, si la hubo. */
   restError: string | null
   loading: boolean
+  /** Dirección local anunciada por el ESP32 (retenido en simon/<id>/info), si ya la vimos. */
+  localHost: string | null
 }
 
 function isState(x: unknown): x is TwinState {
@@ -37,6 +40,7 @@ export function useLive(deviceId: string | null): LiveData {
   const [stateRx, setStateRx] = useState(0)
   const [restError, setRestError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [localHost, setLocalHost] = useState<string | null>(null)
 
   const clientRef = useRef<MqttClient | null>(null)
   const deviceRef = useRef<string | null>(deviceId)
@@ -73,7 +77,7 @@ export function useLive(deviceId: string | null): LiveData {
       /* mqtt.js reintenta solo; el estado ya pasa a 'reconnecting' */
     })
     client.on('message', (topic, payload) => {
-      const m = /^simon\/([^/]+)\/(state|telemetry|status)$/.exec(topic)
+      const m = /^simon\/([^/]+)\/(state|telemetry|status|info)$/.exec(topic)
       if (!m || m[1] !== deviceRef.current) return
       const text = payload.toString()
       if (m[2] === 'status') {
@@ -87,6 +91,16 @@ export function useLive(deviceId: string | null): LiveData {
           }
         }
         if (t === 'online' || t === 'offline') setStatus(t)
+        return
+      }
+      if (m[2] === 'info') {
+        try {
+          const j = JSON.parse(text) as { ip?: unknown; host?: unknown }
+          const h = [j.ip, j.host].map((x) => (typeof x === 'string' ? x : '')).find(validLocalHost)
+          if (h) setLocalHost(h)
+        } catch {
+          /* ignorado */
+        }
         return
       }
       try {
@@ -114,9 +128,10 @@ export function useLive(deviceId: string | null): LiveData {
     setStatus(null)
     setStateRx(0)
     setRestError(null)
+    setLocalHost(null)
     const client = clientRef.current
     if (!deviceId || !client) return
-    const topics = [`simon/${deviceId}/state`, `simon/${deviceId}/telemetry`, `simon/${deviceId}/status`]
+    const topics = [`simon/${deviceId}/state`, `simon/${deviceId}/telemetry`, `simon/${deviceId}/status`, `simon/${deviceId}/info`]
     const sub = () => client.subscribe(topics, { qos: 0 }, () => {})
     if (client.connected) sub()
     client.on('connect', sub)
@@ -153,5 +168,5 @@ export function useLive(deviceId: string | null): LiveData {
     }
   }, [deviceId, mqttStatus, applyState])
 
-  return { mqtt: mqttStatus, state, telemetry, status, stateRx, restError, loading }
+  return { mqtt: mqttStatus, state, telemetry, status, stateRx, restError, loading, localHost }
 }

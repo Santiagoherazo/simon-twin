@@ -1,0 +1,70 @@
+name: Pruebas
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: pw
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 3s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:pw@127.0.0.1:5432/postgres
+      MQTT_PASSWORD: x
+      API_KEY: x
+      TEST_PG_LOCAL: postgresql://postgres:pw@127.0.0.1:5432/local_t
+      TEST_PG_REMOTE: postgresql://postgres:pw@127.0.0.1:5432/remote_t
+      TEST_REDIS: redis://127.0.0.1:6379/0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - name: Crear bases de prueba
+        run: |
+          PGPASSWORD=pw psql -h 127.0.0.1 -U postgres -c "CREATE DATABASE local_t" -c "CREATE DATABASE remote_t"
+      - name: Instalar dependencias
+        working-directory: backend
+        run: pip install -r requirements.txt pytest pyflakes
+      - name: Análisis estático
+        working-directory: backend
+        run: python -m pyflakes app
+      - name: Pruebas (motor, respaldo, buzón, caché)
+        working-directory: backend
+        run: python -m pytest -q
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - working-directory: frontend
+        run: npm ci
+      - name: Tipos
+        working-directory: frontend
+        run: npx tsc --noEmit
+      - name: Build
+        working-directory: frontend
+        env:
+          VITE_API_URL: https://example.org
+          VITE_MQTT_URL: wss://example.org
+        run: npm run build

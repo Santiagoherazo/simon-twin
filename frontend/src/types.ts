@@ -11,6 +11,8 @@ export interface DeviceInfo {
   status_ts: string | null
   soil_depth_cm: number
   pot_area_cm2: number
+  local_ip?: string | null
+  local_host?: string | null
 }
 
 export interface Readings {
@@ -123,6 +125,8 @@ export interface TwinState {
   alerts?: AlertItem[]
   prediction?: Prediction | null
   plant?: PlantParams | null
+  /** true cuando las lecturas vienen directo del ESP32 (modo local, sin nube). */
+  local?: boolean
 }
 
 export interface Telemetry {

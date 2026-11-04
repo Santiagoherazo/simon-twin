@@ -2,6 +2,7 @@
 derivados, guarda en TimescaleDB y dispara el recálculo del estado del twin."""
 
 import asyncio
+import ipaddress
 import json
 import logging
 import re
@@ -12,6 +13,7 @@ import aiomqtt
 import asyncpg
 from pydantic import ValidationError
 
+from . import backup
 from .config import settings
 from .kpis import vpd_kpa, vwc_pct
 from .schemas import Telemetry
@@ -19,7 +21,36 @@ from .twin import schedule_state_publish
 
 log = logging.getLogger("simon.ingest")
 
-TOPIC_RE = re.compile(r"^simon/([^/]+)/(telemetry|status)$")
+TOPIC_RE = re.compile(r"^simon/([^/]+)/(telemetry|status|info)$")
+HOST_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,40}[a-z0-9])?\.local$")
+
+
+def private_ipv4(value) -> str | None:
+    """Solo se aceptan IPv4 de red local (10/8, 172.16/12, 192.168/16, 169.254/16).
+    La web redirige a esta dirección, así que nunca debe apuntar a internet."""
+    try:
+        ip = ipaddress.IPv4Address(str(value).strip())
+    except ValueError:
+        return None
+    return str(ip) if ip.is_private and not ip.is_loopback else None
+
+
+def parse_info(payload: bytes) -> dict | None:
+    """{"ip":"192.168.1.20","host":"simon-esp32-01.local","fw":"1.3"} -> campos validados."""
+    try:
+        d = json.loads(payload)
+    except ValueError:
+        return None
+    if not isinstance(d, dict):
+        return None
+    ip = private_ipv4(d.get("ip"))
+    host = str(d.get("host") or "").strip().lower()
+    host = host if HOST_RE.match(host) else None
+    if not ip and not host:
+        return None
+    fw = str(d.get("fw") or "")[:20] or None
+    return {"ip": ip, "host": host, "fw": fw}
+
 DEVICE_RE = re.compile(settings.device_id_regex)
 
 INSERT_TELEMETRY = """
@@ -27,6 +58,7 @@ INSERT INTO telemetry (ts, device_id, vwc_raw, soil_t, ph, ec, n, p, k,
                        air_t, air_rh, lux, tank_ok, pump_on, pump_ma,
                        vwc_pct, vpd_kpa)
 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+ON CONFLICT DO NOTHING
 """
 
 
@@ -36,7 +68,7 @@ def resolve_ts(device_id: str, ts: float | None, now: float | None = None) -> da
     - Sin ts, o ts incoherente con el servidor -> hora del servidor.
     - ts cercano al reloj del servidor (NTP del ESP32) -> se respeta.
     - Dispositivos simulados (prefijo sim-) pueden mandar histórico del pasado.
-    - Dispositivos reales pueden vaciar su cola de hasta device_backdate_max_s (1 h) tras un corte.
+    - Dispositivos reales pueden vaciar su cola de hasta device_backdate_max_s (24 h por defecto) tras un corte.
     """
     now = time.time() if now is None else now
     use = now
@@ -81,7 +113,13 @@ async def process_telemetry(app, device_id: str, t: Telemetry) -> datetime | Non
         log.warning("telemetría ignorada: device_id no permitido (%r)", device_id)
         return None
     ts = resolve_ts(device_id, t.ts)
-    await pool.execute(INSERT_TELEMETRY, *telemetry_args(device_id, t, ts, dev["vwc_raw_dry"], dev["vwc_raw_wet"]))
+    async with pool.acquire() as con:
+        async with con.transaction():           # lectura + cola de respaldo juntas: o quedan las dos o ninguna
+            await con.execute(INSERT_TELEMETRY, *telemetry_args(device_id, t, ts, dev["vwc_raw_dry"], dev["vwc_raw_wet"]))
+            await backup.enqueue(con, device_id, ts)
+    cache = getattr(app.state, "cache", None)
+    if cache is not None:
+        await cache.delete(f"latest:{device_id}")
     if abs(time.time() - ts.timestamp()) < 120:      # solo datos "en vivo" recalculan el twin
         schedule_state_publish(app, device_id)
     return ts
@@ -125,6 +163,21 @@ async def handle_status(app, device_id: str, payload: bytes) -> None:
     schedule_state_publish(app, device_id)
 
 
+async def handle_info(app, device_id: str, payload: bytes) -> None:
+    pool: asyncpg.Pool = app.state.pool
+    if await ensure_device(pool, device_id) is None:
+        return
+    info = parse_info(payload)
+    if info is None:
+        log.warning("info inválido de %s: %r", device_id, payload[:80])
+        return
+    await pool.execute(
+        "UPDATE devices SET local_ip = $2, local_host = $3, fw_version = $4 WHERE device_id = $1",
+        device_id, info["ip"], info["host"], info["fw"],
+    )
+    log.info("%s anuncia %s / %s", device_id, info["ip"], info["host"])
+
+
 async def mqtt_loop(app) -> None:
     """Bucle de ingesta con reconexión automática. Si el broker cae, reintenta."""
     while True:
@@ -139,6 +192,7 @@ async def mqtt_loop(app) -> None:
             ) as client:
                 await client.subscribe("simon/+/telemetry", qos=1)
                 await client.subscribe("simon/+/status", qos=1)
+                await client.subscribe("simon/+/info", qos=1)
                 app.state.mqtt = client
                 log.info("conectado al broker MQTT")
                 async for msg in client.messages:
@@ -149,6 +203,8 @@ async def mqtt_loop(app) -> None:
                     try:
                         if kind == "telemetry":
                             await handle_telemetry(app, device_id, msg.payload)
+                        elif kind == "info":
+                            await handle_info(app, device_id, msg.payload)
                         else:
                             await handle_status(app, device_id, msg.payload)
                     except asyncpg.PostgresError:

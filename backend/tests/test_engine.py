@@ -211,7 +211,7 @@ def test_plant_visual_grows_with_gdd_and_wilts():
 def test_resolve_ts_rules():
     now = 1_800_000_000.0
     assert resolve_ts("esp32-01", now - 10, now).timestamp() == now - 10             # reloj coherente
-    assert resolve_ts("esp32-01", now - 86400, now).timestamp() == now             # un dispositivo real no puede retrodatar
+    assert resolve_ts("esp32-01", now - 3 * 86400, now).timestamp() == now         # un dispositivo real no puede retrodatar más de 24 h
     assert resolve_ts("sim-01", now - 86400, now).timestamp() == now - 86400         # el simulado sí
     assert resolve_ts("sim-01", now + 86400, now).timestamp() == now                 # nunca el futuro
     assert resolve_ts("esp32-01", None, now).timestamp() == now
@@ -239,5 +239,17 @@ def test_parse_status_acepta_texto_y_json():
 def test_resolve_ts_cola_de_dispositivo_real():
     now = 1_800_000_000.0
     assert resolve_ts("esp32-01", now - 900, now).timestamp() == now - 900          # 15 min: se respeta
-    assert resolve_ts("esp32-01", now - 7200, now).timestamp() == now              # 2 h: hora del servidor
+    assert resolve_ts("esp32-01", now - 7200, now).timestamp() == now - 7200      # 2 h: ahora se respeta (límite 24 h)
+    assert resolve_ts("esp32-01", now - 2 * 86400, now).timestamp() == now         # 2 días: hora del servidor
     assert resolve_ts("esp32-01", now + 3600, now).timestamp() == now              # futuro: hora del servidor
+
+
+def test_parse_info_solo_red_local():
+    from app.ingest import parse_info
+    ok = parse_info(b'{"ip":"192.168.1.20","host":"simon-esp32-01.local","fw":"1.3"}')
+    assert ok == {"ip": "192.168.1.20", "host": "simon-esp32-01.local", "fw": "1.3"}
+    assert parse_info(b'{"ip":"8.8.8.8"}') is None                 # pública: nunca
+    assert parse_info(b'{"ip":"127.0.0.1"}') is None
+    assert parse_info(b'{"host":"evil.com"}') is None
+    assert parse_info(b'no es json') is None
+    assert parse_info(b'{"ip":"8.8.8.8","host":"a.local"}')["ip"] is None

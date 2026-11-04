@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { fmt, fmtHours } from '../format'
 import type { LiveData } from '../live'
 import type { Mode } from './Header'
+import type { Quality } from '../scene/quality'
 import { LivePanel } from './LivePanel'
 import { SimPanel, type SimPanelProps } from './SimPanel'
 import type { SimRequest, TwinState } from '../types'
@@ -12,6 +13,11 @@ import { gyro, useXr, xrRequest, setXr, detectAr } from '../xr'
 export function statusPhrase(s: TwinState | null): { text: string; tone: 'ok' | 'warn' | 'bad' | 'idle' } {
   if (!s) return { text: 'Conectando con tu jardín…', tone: 'idle' }
   if (!s.online) return { text: 'Tu dispositivo está sin conexión', tone: 'bad' }
+  if (s.local && s.readings) {
+    const r = s.readings
+    const bits = [r.vwc_pct != null && `humedad ${Math.round(r.vwc_pct)} %`, r.soil_t != null && `suelo ${r.soil_t.toFixed(1)} °C`, r.air_t != null && `aire ${r.air_t.toFixed(1)} °C`].filter(Boolean)
+    return { text: `Datos locales · ${bits.join(' · ')}`, tone: 'idle' }
+  }
   if (!s.readings || !s.soil) return { text: 'Esperando los primeros datos', tone: 'idle' }
   const crop = (s.crop?.name ?? 'cultivo').toLowerCase()
   const crit = s.alerts?.find((a) => a.level === 'critical')
@@ -47,6 +53,8 @@ interface Props {
   onMode: (m: Mode) => void
   deviceId: string | null
   sim: SimPanelProps
+  quality: Quality
+  onQuality: (q: Quality) => void
 }
 
 const KEY = 'simon.apikey'
@@ -60,7 +68,18 @@ const readKey = () => {
 
 type Orient = DeviceOrientationEvent & { requestPermission?: () => Promise<'granted' | 'denied'> }
 
-export function MobileShell({ live, mode, onMode, deviceId, sim }: Props) {
+export function MobileShell({ live, mode, onMode, deviceId, sim, quality, onQuality }: Props) {
+  const taps = useRef({ n: 0, t: 0 })
+  // 5 toques seguidos en el nombre del dispositivo muestran/ocultan el medidor de rendimiento
+  const idTap = () => {
+    const now = Date.now()
+    taps.current.n = now - taps.current.t < 1200 ? taps.current.n + 1 : 1
+    taps.current.t = now
+    if (taps.current.n >= 5) {
+      taps.current.n = 0
+      window.dispatchEvent(new Event('simon-hud'))
+    }
+  }
   const xr = useXr()
   const s = live.state
   const phrase = statusPhrase(s)
@@ -164,10 +183,13 @@ export function MobileShell({ live, mode, onMode, deviceId, sim }: Props) {
   return (
     <>
       <div className="m-top">
-        <div className="m-glass m-id">
+        <div className="m-glass m-id" onClick={idTap}>
           <span className={'dot ' + (s?.online ? 'ok' : s ? 'bad' : '')} />
           <b>{deviceId ?? 'Sin dispositivo'}</b>
         </div>
+        <button type="button" className="m-glass m-icon" onClick={() => onQuality(quality === 'off' ? 'low' : 'off')} aria-pressed={quality === 'off'} aria-label="Escena 3D">
+          {quality === 'off' ? 'Con 3D' : 'Sin 3D'}
+        </button>
         <button type="button" className="m-glass m-icon" aria-pressed={clean} onClick={() => setClean((c) => !c)} aria-label="Vista limpia">
           {clean ? 'Mostrar' : 'Ocultar'}
         </button>

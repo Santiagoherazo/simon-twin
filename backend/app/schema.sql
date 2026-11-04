@@ -19,6 +19,11 @@ CREATE TABLE IF NOT EXISTS devices (
     CHECK (vwc_raw_dry > vwc_raw_wet)
 );
 
+-- Dirección local del ESP32 (la anuncia él mismo en simon/<id>/info); la app la usa si cae la nube
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS local_ip TEXT;
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS local_host TEXT;
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS fw_version TEXT;
+
 CREATE TABLE IF NOT EXISTS telemetry (
     ts            TIMESTAMPTZ NOT NULL,
     device_id     TEXT NOT NULL REFERENCES devices(device_id),
@@ -37,6 +42,13 @@ CREATE TABLE IF NOT EXISTS telemetry (
     pump_ma       DOUBLE PRECISION,
     vwc_pct       DOUBLE PRECISION,
     vpd_kpa       DOUBLE PRECISION
+);
+
+-- Cola de respaldo hacia Supabase: se llena en la misma transacción que la lectura y se vacía en lotes
+CREATE TABLE IF NOT EXISTS backup_outbox (
+    id         BIGSERIAL PRIMARY KEY,
+    device_id  TEXT NOT NULL,
+    ts         TIMESTAMPTZ NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS telemetry_device_ts_idx ON telemetry (device_id, ts DESC);

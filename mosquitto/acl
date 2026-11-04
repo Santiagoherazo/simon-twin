@@ -9,6 +9,7 @@
 # en SUS topics y solo lee SUS comandos.
 pattern write simon/%u/telemetry
 pattern write simon/%u/status
+pattern write simon/%u/info
 pattern read  simon/%u/cmd/#
 
 # Backend: lee todo y publica comandos

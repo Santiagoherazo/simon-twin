@@ -48,25 +48,53 @@ function DebugHook() {
   return null
 }
 
-/** Con ?fps muestra fps reales, calidad, resolución, triángulos y cuánto tardó el primer cuadro (para medir en el celular). */
-function FpsHud({ quality }: { quality: Quality }) {
+/** Medidor de rendimiento (fps, resolución, triángulos, shaders, primer cuadro). Se activa con ?fps o con 5 toques
+ *  seguidos sobre el nombre del dispositivo (celular/APK). Además vigila el arranque: si el primer cuadro tarda
+ *  demasiado, avisa para pasar a "Sin 3D". */
+function FpsHud({ quality, onTooSlow }: { quality: Quality; onTooSlow: () => void }) {
   const gl = useThree((s) => s.gl)
-  const st = useRef({ n: 0, t: performance.now(), first: 0, el: null as HTMLDivElement | null })
+  const st = useRef({ n: 0, t: performance.now(), first: 0, el: null as HTMLDivElement | null, on: false })
   useEffect(() => {
+    let saved = false
+    try {
+      saved = localStorage.getItem('simon.hud') === '1'
+    } catch {
+      /* sin almacenamiento */
+    }
+    st.current.on = saved || new URLSearchParams(location.search).has('fps')
     const el = document.createElement('div')
-    el.style.cssText = 'position:fixed;z-index:60;left:6px;top:calc(env(safe-area-inset-top) + 56px);padding:4px 8px;border-radius:8px;background:rgba(0,0,0,.65);color:#fff;font:600 11px/1.3 monospace;pointer-events:none;white-space:pre'
+    el.style.cssText = 'position:fixed;z-index:60;left:6px;top:calc(env(safe-area-inset-top) + 56px);padding:4px 8px;border-radius:8px;background:rgba(0,0,0,.65);color:#fff;font:600 11px/1.3 monospace;pointer-events:none;white-space:pre;display:none'
     document.body.appendChild(el)
     st.current.el = el
-    return () => el.remove()
+    const toggle = () => {
+      st.current.on = !st.current.on
+      try {
+        localStorage.setItem('simon.hud', st.current.on ? '1' : '0')
+      } catch {
+        /* sin almacenamiento */
+      }
+      if (!st.current.on) el.style.display = 'none'
+    }
+    window.addEventListener('simon-hud', toggle)
+    return () => {
+      window.removeEventListener('simon-hud', toggle)
+      el.remove()
+    }
   }, [])
   useFrame(() => {
     const a = st.current
-    if (!a.first) a.first = performance.now()
+    if (!a.first) {
+      a.first = performance.now()
+      if (a.first > 15000) onTooSlow()   // el primer cuadro tardó más de 15 s: este celular no aguanta la escena
+    }
     a.n++
     const now = performance.now()
-    if (now - a.t >= 1000 && a.el) {
+    if (now - a.t >= 1000) {
       const fps = Math.round((a.n * 1000) / (now - a.t))
-      a.el.textContent = `${fps} fps · ${quality} · dpr ${gl.getPixelRatio().toFixed(2)}\n${Math.round(gl.info.render.triangles / 1000)}k tri · ${gl.info.programs?.length ?? 0} shaders\n1er cuadro ${(a.first / 1000).toFixed(1)} s`
+      if (a.on && a.el) {
+        a.el.style.display = 'block'
+        a.el.textContent = `${fps} fps · ${quality} · dpr ${gl.getPixelRatio().toFixed(2)}\n${Math.round(gl.info.render.triangles / 1000)}k tri · ${gl.info.programs?.length ?? 0} shaders\n1er cuadro ${(a.first / 1000).toFixed(1)} s`
+      }
       a.n = 0
       a.t = now
     }
@@ -147,12 +175,14 @@ export interface SceneProps {
   /** píxeles que ocupa el panel de la derecha (escritorio) */
   shiftPx?: number
   narrow: boolean
-  quality: Quality
+  quality: Exclude<Quality, 'off'>
   onQualityDrop: () => void
+  /** El celular no aguanta la escena: pasar a "Sin 3D". */
+  onTooSlow: () => void
 }
 
 /** Escena 3D: invernadero con mesa de roble, la mata, el suelo en corte, el tanque y la bomba. */
-export function Scene({ narrow, quality, onQualityDrop, shiftPx = 0 }: SceneProps) {
+export function Scene({ narrow, quality, onQualityDrop, onTooSlow, shiftPx = 0 }: SceneProps) {
   const xr = useXr()
   const controls = useRef<OrbitControlsImpl>(null)
   const maxDpr = quality === 'high' ? 2 : quality === 'medium' ? 1.5 : 1.25
@@ -179,7 +209,7 @@ export function Scene({ narrow, quality, onQualityDrop, shiftPx = 0 }: SceneProp
         <AdaptiveRes max={maxDpr} onFloor={onQualityDrop} />
         <Smoother />
         <DebugHook />
-        {new URLSearchParams(location.search).has('fps') && <FpsHud quality={quality} />}
+        <FpsHud quality={quality} onTooSlow={onTooSlow} />
         {quality === 'low' && !xr.active && <FpsCap fps={30} />}
         <Env />
         <Suspense fallback={null}>

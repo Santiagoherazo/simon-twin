@@ -94,7 +94,7 @@ const fxFlag = (name: string) => {
   }
 }
 
-export function Post({ quality: _q }: { quality: Exclude<Quality, 'low'> }) {
+export function Post({ quality: _q }: { quality: Exclude<Quality, 'low' | 'off'> }) {
   return (
     <EffectComposer multisampling={0} frameBufferType={THREE.HalfFloatType} enableNormalPass={false}>
       {/* AO desactivada por defecto: N8AO dejaba un halo fantasma sobre la pared. Se activa con ?fx=ao,bloom,... */}

@@ -72,7 +72,15 @@ export interface PumpResult {
   ts: number
 }
 
+/** Si no hay nube pero sí ESP32 alcanzable, el riego manual va directo a su servidor local (sin API key). */
+export const localRoute: { host: string | null } = { host: null }
+
 export async function pump(id: string, seconds: number, apiKey: string): Promise<PumpResult> {
+  if (localRoute.host) {
+    const r = await fetch(`http://${localRoute.host}/api/pump?s=${Math.max(1, Math.floor(seconds))}`, { method: 'POST' })
+    if (!r.ok) throw new ApiError(r.status, `El ESP32 rechazó el riego (${r.status}).`)
+    return { cmd_id: 'local', seconds, ts: Date.now() / 1000 } as PumpResult
+  }
   try {
     return await request<PumpResult>(`/devices/${encodeURIComponent(id)}/pump`, {
       method: 'POST',

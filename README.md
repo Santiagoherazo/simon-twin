@@ -92,3 +92,18 @@ En APK/celular la calidad empieza en **Baja** y la escena pasa a un modo ligero:
 
 Medido en Chromium con la CPU 4× más lenta y render por software (no es un celular real): bloqueo del hilo principal al cargar **16 s → 2,2 s**, mayor congelamiento 8 s → 1 s, shaders 40 → 14, texturas 31 → 10, triángulos 82 k → 37 k.
 Los materiales se deciden al cargar: si cambias la calidad a mano, recarga. `?fps` muestra fps, resolución, triángulos, shaders y tiempo del primer cuadro (úsalo en el celular); `?perf` expone el renderer para medir.
+
+
+### Modo «Sin 3D»
+Si el celular no aguanta la escena, el botón **Sin 3D** (en la barra móvil) la reemplaza por una imagen fija y deja solo datos y controles. Se activa solo si el primer cuadro tarda más de 15 s o si el FPS cae al mínimo. Para ver el HUD de FPS en el celular: toca 5 veces seguidas el nombre del dispositivo (o abre con `?fps`).
+
+
+## Caché Redis y respaldo en Supabase
+Ver [docs/respaldo-supabase.md](docs/respaldo-supabase.md). Pruebas de integración: `TEST_PG_LOCAL`, `TEST_PG_REMOTE`, `TEST_REDIS` (se omiten si faltan).
+
+## Modo local (sin nube)
+La app vigila `API_URL/health`; tras ~15 s de fallos pasa a **modo local**:
+- **APK / página `http`**: lee `http://<ip-del-esp32>/api/state` cada 3 s y el riego manual va directo al ESP32. Vuelve a la nube sola (2 sondeos buenos).
+- **Web `https`**: el navegador bloquea `http://192.168.x.x`, así que tras 8 s redirige a la página del propio ESP32 (`/#auto`), que vuelve sola a la nube cuando `/health` responde. Se puede cancelar.
+- La IP del ESP32 se aprende por MQTT (`simon/<id>/info`) o `/devices`; también `?esp=192.168.1.20` o el campo manual. Solo se aceptan IPs privadas o `*.local`.
+- Con el celular en datos móviles no hay forma de llegar al ESP32.

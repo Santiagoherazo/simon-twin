@@ -6,6 +6,8 @@ import { MobileShell } from './components/MobileShell'
 import { SimPanel } from './components/SimPanel'
 import { DEFAULT_DEVICE, MISCONFIGURED } from './config'
 import { useLive } from './live'
+import { useFailover } from './local'
+import { NetBanner } from './components/NetBanner'
 import { initialQuality, QUALITY_ORDER, saveQuality, type Quality } from './scene/quality'
 import { reducedMotion } from './scene/smooth'
 import { Scene } from './scene/Scene'
@@ -52,7 +54,8 @@ export default function App() {
     })
   }, [])
 
-  const live = useLive(deviceId)
+  const cloudLive = useLive(deviceId)
+  const { live, net } = useFailover(deviceId, cloudLive)
 
   // Catálogos y dispositivos
   useEffect(() => {
@@ -60,9 +63,23 @@ export default function App() {
     getDevices(ctrl.signal)
       .then((d) => {
         setDevices(d)
+        try {
+          localStorage.setItem('simon.lastDevice', (d.find((x) => x.device_id === DEFAULT_DEVICE) ?? d[0])?.device_id ?? '')
+        } catch {
+          /* sin almacenamiento */
+        }
         setDeviceId((cur) => cur ?? (d.find((x) => x.device_id === DEFAULT_DEVICE) ?? d[0])?.device_id ?? null)
       })
-      .catch(() => {})
+      .catch(() => {
+        // Nube caída al abrir la app: se usa el último dispositivo conocido para poder pasar a modo local
+        let last: string | null = null
+        try {
+          last = localStorage.getItem('simon.lastDevice')
+        } catch {
+          /* sin almacenamiento */
+        }
+        setDeviceId((cur) => cur ?? last ?? DEFAULT_DEVICE)
+      })
     getCrops(ctrl.signal).then(setCrops).catch(() => {})
     getSoils(ctrl.signal).then(setSoils).catch(() => {})
     return () => ctrl.abort()
@@ -200,11 +217,14 @@ export default function App() {
           {MISCONFIGURED}
         </div>
       )}
-      <div className="scene">
-        <Scene narrow={narrow} quality={quality} onQualityDrop={dropQuality} shiftPx={narrow ? 0 : Math.min(400, Math.max(0, winW - 1000) * 0.5 + 220)} />
+      <div className={'scene' + (quality === 'off' ? ' scene-static' : '')}>
+        {quality !== 'off' && (
+          <Scene narrow={narrow} quality={quality} onQualityDrop={dropQuality} onTooSlow={() => setQuality('off')} shiftPx={narrow ? 0 : Math.min(400, Math.max(0, winW - 1000) * 0.5 + 220)} />
+        )}
       </div>
+      <NetBanner net={net} />
       {narrow ? (
-        <MobileShell live={live} mode={mode} onMode={changeMode} deviceId={deviceId} sim={simProps} />
+        <MobileShell live={live} mode={mode} onMode={changeMode} deviceId={deviceId} sim={simProps} quality={quality} onQuality={setQuality} />
       ) : (
         <>
           <Header
