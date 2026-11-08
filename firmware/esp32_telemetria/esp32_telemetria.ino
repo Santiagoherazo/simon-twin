@@ -8,7 +8,20 @@
 #include <ESPmDNS.h>
 #include <LittleFS.h>
 
-#define FW_VERSION "1.5"
+// Descomenta según los sensores que uses (e instala la librería). Si el backend configura un sensor
+// cuyo driver no está compilado, el ESP32 lo omite y avisa por el monitor serie.
+// #define USE_DHT        // librería «DHT sensor library» (Adafruit) + «Adafruit Unified Sensor»
+// #define USE_DS18B20    // librerías «OneWire» y «DallasTemperature»
+#include <Wire.h>
+#ifdef USE_DHT
+#include <DHT.h>
+#endif
+#ifdef USE_DS18B20
+#include <OneWire.h>
+#include <DallasTemperature.h>
+#endif
+
+#define FW_VERSION "2.0"
 
 // === CONFIGURACIÓN WIFI ===
 const char* ssid     = "vivo Y33s";
@@ -19,7 +32,7 @@ const char* device_id       = "esp32-01";
 const char* mqtt_user       = "esp32-01";                 // = device_id (lo exige el ACL del broker)
 const char* mqtt_password   = "Qgr_KMAM7VWyG3Q7PBvl3MuU"; // = MQTT_ESP32_PASSWORD del broker (solo pruebas)
 const char* topic_telemetry = "simon/esp32-01/telemetry";
-const char* topic_cmd       = "simon/esp32-01/cmd/#";
+const char* topic_cmd       = "simon/esp32-01/cmd/#";   // cmd/<actuador> con {"seconds":N}
 const char* topic_status    = "simon/esp32-01/status";
 const char* config_url      = "https://simon.zeusr2.duckdns.org/mqtt-config";
 
@@ -37,17 +50,6 @@ const char* INGEST_KEY        = "";    // POST /devices/esp32-01/ingest-key en e
 const unsigned long SB_AFTER_MS = 45000;   // tiempo sin MQTT antes de usar Supabase (evita saltar por un cambio de puerto)
 const unsigned long SB_EVERY_MS = 10000;   // un lote cada 10 s
 const int SB_BATCH = 10;
-
-// === RIEGO AUTÓNOMO (funciona sin nube) ===
-const int   PUMP_PIN        = -1;       // GPIO del relé de la bomba; -1 = solo simulado (sin salida física)
-const bool  PUMP_ACTIVE_HIGH = true;
-const bool  AUTO_IRRIGATION  = true;
-const float PUMP_ON_BELOW    = 30.0;    // % de humedad: debajo de esto riega
-const float PUMP_OFF_ABOVE   = 40.0;    // % de humedad: al llegar aquí corta
-const int   PUMP_AUTO_S      = 30;      // segundos por riego automático
-const int   PUMP_MAX_S       = 120;     // tope duro por cualquier comando
-const unsigned long PUMP_COOLDOWN_MS = 600000;   // 10 min entre riegos automáticos
-const int   RAW_DRY = 3100, RAW_WET = 1300;      // calibración local (el backend usa la suya)
 
 // === OBJETOS ===
 WebServer server(80);
@@ -122,29 +124,270 @@ bool fetchConfig() {
   return success;
 }
 
-// === BOMBA (estado + peticiones; solo taskMqtt cambia la salida) ===
-volatile bool pumpOn = false;
-volatile int  pumpReq = 0;            // >0: encender N s (manual local o MQTT)
-volatile bool pumpStopReq = false;
-bool pumpAuto = false;
-unsigned long pumpUntil = 0, pumpEnd = 0;
+// >>> LOGIC (sensores, actuadores y configuración dinámica; se prueba en C++ de escritorio)
+// === CONFIGURACIÓN DINÁMICA ===
+// La lista de sensores/actuadores NO está en el sketch: se descarga de GET /devices/esp32-01/config, se guarda en
+// flash (/config.json) y se aplica sin reiniciar. Lo que no tenga driver compilado (DHT, DS18B20) se omite con aviso.
+const int MAXS = 24, MAXA = 8, HN = 240;
+const int PAYLOAD_MAX = 360;                  // bytes del JSON de telemetría (cabe en una posición de la cola)
+enum Drv : uint8_t { D_ANALOG, D_DIGITAL, D_DHT_T, D_DHT_H, D_DS18B20, D_BH1750, D_SIM };
 
-void pumpWrite(bool on) {
-  pumpOn = on;
-  if (PUMP_PIN >= 0) digitalWrite(PUMP_PIN, (on == PUMP_ACTIVE_HIGH) ? HIGH : LOW);
-  Serial.printf("[PUMP] %s\n", on ? "ON" : "OFF");
+struct SensorCfg { char key[33]; char label[41]; char unit[13]; uint8_t drv; int16_t pin; int16_t param; float scale, offset, simMin, simMax; };
+struct ActCfg {
+  char key[33]; char label[41]; bool activeHigh; int16_t pin; uint16_t maxS; char autoVar[33];
+  bool hasBelow, hasAbove, hasOff; float onBelow, onAbove, offAt; uint16_t autoS; uint32_t cooldownS;
+};
+struct ActState { bool on; bool autoRun; unsigned long until; unsigned long endedAt; };
+
+SensorCfg sens[MAXS]; int nSens = 0;
+ActCfg acts[MAXA]; ActState actSt[MAXA]; int nActs = 0;
+volatile int  actReq[MAXA];
+volatile bool actStopReq[MAXA];
+int cfgVersion = 0;
+unsigned long reportMs = 10000;
+float curVal[MAXS];
+SemaphoreHandle_t cfgLock;
+
+const char DEFAULT_CFG[] PROGMEM = R"CFG({"version":0,"report_interval_s":10,"sensors":[
+{"key":"vwc_raw","label":"Humedad suelo (ADC)","driver":"simulated","sim_min":2150,"sim_max":2450},
+{"key":"soil_t","label":"Temp. suelo","unit":"C","driver":"simulated","sim_min":19.5,"sim_max":23},
+{"key":"ph","label":"pH","driver":"simulated","sim_min":6.2,"sim_max":6.8},
+{"key":"air_t","label":"Temp. aire","unit":"C","driver":"simulated","sim_min":23.5,"sim_max":27.5},
+{"key":"air_rh","label":"Humedad aire","unit":"%","driver":"simulated","sim_min":50,"sim_max":75}],
+"actuators":[{"key":"pump","label":"Bomba","max_seconds":120}]})CFG";
+
+int drvFromName(const char* n) {
+  if (!strcmp(n, "analog")) return D_ANALOG;
+  if (!strcmp(n, "digital")) return D_DIGITAL;
+  if (!strcmp(n, "dht_t")) return D_DHT_T;
+  if (!strcmp(n, "dht_h")) return D_DHT_H;
+  if (!strcmp(n, "ds18b20")) return D_DS18B20;
+  if (!strcmp(n, "bh1750")) return D_BH1750;
+  if (!strcmp(n, "simulated")) return D_SIM;
+  return -1;
 }
 
-// === CALLBACK MQTT === (comando de riego: {"seconds":30})
-void mqttCallback(char* topic, byte* payload, unsigned int length) {
-  Serial.printf("[MQTT] RX [%s] %.*s\n", topic, (int)length, (const char*)payload);
-  if (strstr(topic, "/cmd/pump")) {
-    StaticJsonDocument<192> doc;
-    if (!deserializeJson(doc, payload, length)) {
-      int sec = doc["seconds"] | 0;
-      if (sec > 0) pumpReq = sec;
+void actWrite(int i, bool on) {
+  actSt[i].on = on;
+  if (acts[i].pin >= 0) digitalWrite(acts[i].pin, (on == acts[i].activeHigh) ? HIGH : LOW);
+  Serial.printf("[ACT] %s %s\n", acts[i].key, on ? "ON" : "OFF");
+}
+
+int findAct(const char* key) { for (int i = 0; i < nActs; i++) if (!strcmp(acts[i].key, key)) return i; return -1; }
+float varValue(const char* key) { for (int i = 0; i < nSens; i++) if (!strcmp(sens[i].key, key)) return curVal[i]; return NAN; }
+
+// Resultado: 0 = JSON inválido, 1 = sin cambios, 2 = aplicada
+int applyConfig(const String& json) {
+  static SensorCfg ns[MAXS];
+  static ActCfg na[MAXA];
+  DynamicJsonDocument doc(12288);
+  if (deserializeJson(doc, json.c_str())) { Serial.println("[CFG] JSON de configuración inválido"); return 0; }
+  if (doc["unchanged"] | false) return 1;
+  JsonArray js = doc["sensors"].as<JsonArray>(), ja = doc["actuators"].as<JsonArray>();
+  if (js.isNull() || ja.isNull()) { Serial.println("[CFG] faltan sensors/actuators"); return 0; }
+
+  int cs = 0, ca = 0;
+  for (JsonObject s : js) {
+    if (cs >= MAXS) break;
+    int d = drvFromName(s["driver"] | "");
+    if (d < 0) { Serial.printf("[CFG] driver desconocido en %s\n", (const char*)(s["key"] | "?")); continue; }
+#ifndef USE_DHT
+    if (d == D_DHT_T || d == D_DHT_H) { Serial.printf("[CFG] %s necesita USE_DHT: omitido\n", (const char*)(s["key"] | "?")); continue; }
+#endif
+#ifndef USE_DS18B20
+    if (d == D_DS18B20) { Serial.printf("[CFG] %s necesita USE_DS18B20: omitido\n", (const char*)(s["key"] | "?")); continue; }
+#endif
+    SensorCfg& c = ns[cs++];
+    memset(&c, 0, sizeof(c));
+    strlcpy(c.key, s["key"] | "", sizeof(c.key));
+    strlcpy(c.label, s["label"] | "", sizeof(c.label));
+    strlcpy(c.unit, s["unit"] | "", sizeof(c.unit));
+    c.drv = d; c.pin = s["pin"] | -1; c.param = s["param"] | 0;
+    c.scale = s["scale"] | 1.0f; c.offset = s["offset"] | 0.0f;
+    c.simMin = s["sim_min"] | 0.0f; c.simMax = s["sim_max"] | 1.0f;
+    if (!c.key[0]) cs--;
+  }
+  for (JsonObject a : ja) {
+    if (ca >= MAXA) break;
+    ActCfg& c = na[ca++];
+    memset(&c, 0, sizeof(c));
+    strlcpy(c.key, a["key"] | "", sizeof(c.key));
+    strlcpy(c.label, a["label"] | "", sizeof(c.label));
+    c.pin = a["pin"] | -1; c.activeHigh = a["active_high"] | true; c.maxS = a["max_seconds"] | 120;
+    strlcpy(c.autoVar, a["auto_variable"] | "", sizeof(c.autoVar));
+    c.hasBelow = !a["auto_on_below"].isNull(); c.hasAbove = !a["auto_on_above"].isNull(); c.hasOff = !a["auto_off_at"].isNull();
+    c.onBelow = a["auto_on_below"] | 0.0f; c.onAbove = a["auto_on_above"] | 0.0f; c.offAt = a["auto_off_at"] | 0.0f;
+    c.autoS = a["auto_seconds"] | 30; c.cooldownS = a["cooldown_s"] | 600;
+    if (!c.key[0]) ca--;
+  }
+
+  xSemaphoreTake(cfgLock, portMAX_DELAY);
+  // actuadores que desaparecen o cambian de pin: se apagan
+  for (int i = 0; i < nActs; i++) {
+    int j = -1;
+    for (int k = 0; k < ca; k++) if (!strcmp(na[k].key, acts[i].key)) j = k;
+    if (acts[i].pin >= 0 && actSt[i].on && (j < 0 || na[j].pin != acts[i].pin)) actWrite(i, false);
+  }
+  ActState oldSt[MAXA]; ActCfg oldA[MAXA]; int oldN = nActs;
+  memcpy(oldSt, actSt, sizeof(actSt)); memcpy(oldA, acts, sizeof(acts));
+  memcpy(sens, ns, sizeof(SensorCfg) * cs); nSens = cs;
+  memcpy(acts, na, sizeof(ActCfg) * ca); nActs = ca;
+  for (int i = 0; i < nActs; i++) {
+    memset(&actSt[i], 0, sizeof(ActState)); actReq[i] = 0; actStopReq[i] = false;
+    for (int k = 0; k < oldN; k++) if (!strcmp(oldA[k].key, acts[i].key) && oldA[k].pin == acts[i].pin) actSt[i] = oldSt[k];   // conserva el estado
+    if (acts[i].pin >= 0) { pinMode(acts[i].pin, OUTPUT); digitalWrite(acts[i].pin, (actSt[i].on == acts[i].activeHigh) ? HIGH : LOW); }
+  }
+  for (int i = 0; i < MAXS; i++) curVal[i] = NAN;
+  cfgVersion = doc["version"] | 0;
+  int ri = doc["report_interval_s"] | 10;
+  reportMs = (unsigned long)(ri < 2 ? 2 : ri) * 1000UL;
+  xSemaphoreGive(cfgLock);
+  Serial.printf("[CFG] aplicada v%d: %d sensores, %d actuadores, cada %d s\n", cfgVersion, cs, ca, ri);
+  return 2;
+}
+
+// --- lectura de sensores ---
+#ifdef USE_DHT
+DHT* dhtFor(int pin, int type) {
+  static DHT* tab[4]; static int pins[4]; static int n = 0;
+  for (int i = 0; i < n; i++) if (pins[i] == pin) return tab[i];
+  if (n >= 4) return nullptr;
+  tab[n] = new DHT(pin, type == 11 ? DHT11 : DHT22); tab[n]->begin(); pins[n] = pin; return tab[n++];
+}
+#endif
+#ifdef USE_DS18B20
+float readDs18b20(int pin) {
+  static OneWire* ow[2]; static DallasTemperature* dt[2]; static int pins[2]; static int n = 0;
+  int idx = -1;
+  for (int i = 0; i < n; i++) if (pins[i] == pin) idx = i;
+  if (idx < 0) { if (n >= 2) return NAN; ow[n] = new OneWire(pin); dt[n] = new DallasTemperature(ow[n]); dt[n]->begin(); pins[n] = pin; idx = n++; }
+  dt[idx]->requestTemperatures();
+  float t = dt[idx]->getTempCByIndex(0);
+  return t == DEVICE_DISCONNECTED_C ? NAN : t;
+}
+#endif
+float readBh1750(int addr) {
+  static bool started = false;
+  if (!started) { Wire.begin(21, 22); started = true; }
+  uint8_t a = addr > 0 ? addr : 0x23;
+  Wire.beginTransmission(a); Wire.write(0x10);
+  if (Wire.endTransmission() != 0) return NAN;
+  delay(180);
+  if (Wire.requestFrom(a, (uint8_t)2) != 2) return NAN;
+  uint16_t raw = (Wire.read() << 8) | Wire.read();
+  return raw / 1.2f;
+}
+
+float readOne(const SensorCfg& s) {
+  float v = NAN;
+  switch (s.drv) {
+    case D_SIM: v = s.simMin + (s.simMax - s.simMin) * (random(0, 10001) / 10000.0f); break;
+    case D_ANALOG: { if (s.pin < 0) return NAN; long sum = 0; for (int i = 0; i < 8; i++) sum += analogRead(s.pin); v = (sum / 8.0f) * s.scale + s.offset; break; }
+    case D_DIGITAL: if (s.pin < 0) return NAN; v = digitalRead(s.pin) ? 1.0f : 0.0f; break;
+    case D_BH1750: v = readBh1750(s.param); if (!isnan(v)) v = v * s.scale + s.offset; break;
+#ifdef USE_DHT
+    case D_DHT_T: case D_DHT_H: { DHT* d = dhtFor(s.pin, s.param); if (!d) return NAN; v = (s.drv == D_DHT_T) ? d->readTemperature() : d->readHumidity(); if (!isnan(v)) v = v * s.scale + s.offset; break; }
+#endif
+#ifdef USE_DS18B20
+    case D_DS18B20: v = readDs18b20(s.pin); if (!isnan(v)) v = v * s.scale + s.offset; break;
+#endif
+  }
+  return v;
+}
+
+void readSensors() { for (int i = 0; i < nSens; i++) curVal[i] = readOne(sens[i]); }
+
+// --- telemetría ---
+void fmtNum(char* buf, size_t n, float v) {
+  if (fabsf(v - roundf(v)) < 0.005f && fabsf(v) < 1e9f) snprintf(buf, n, "%ld", (long)roundf(v));
+  else snprintf(buf, n, "%.2f", v);
+}
+
+// {"v":1,"ts":..,"<clave>":valor,...,"<actuador>_on":true}  Las claves que no son columnas del backend van a telemetry.extra.
+void buildPayload(String& out, uint32_t ts) {
+  out = "{\"v\":1";
+  if (ts > 0) out += ",\"ts\":" + String(ts);
+  char b[24];
+  for (int i = 0; i < nSens; i++) {
+    if (isnan(curVal[i])) continue;
+    if ((int)out.length() > PAYLOAD_MAX - 40) { Serial.println("[TX] demasiadas variables: se recortan"); break; }
+    fmtNum(b, sizeof(b), curVal[i]);
+    out += ",\"" + String(sens[i].key) + "\":" + b;
+  }
+  for (int i = 0; i < nActs; i++) {
+    if ((int)out.length() > PAYLOAD_MAX - 30) break;
+    out += ",\"" + String(acts[i].key) + "_on\":" + (actSt[i].on ? "true" : "false");
+  }
+  out += "}";
+}
+
+// --- historial local (solo RAM): lo que muestra la página del propio ESP32 ---
+struct HistRow { uint32_t ts, up; float v[MAXS]; uint8_t bits; };
+HistRow hist[HN];
+int hHead = 0, hCount = 0;
+SemaphoreHandle_t histLock;
+
+void histPushNow(uint32_t ts, uint32_t up) {
+  xSemaphoreTake(histLock, portMAX_DELAY);
+  HistRow& r = hist[(hHead + hCount) % HN];
+  r.ts = ts; r.up = up; r.bits = 0;
+  for (int i = 0; i < MAXS; i++) r.v[i] = i < nSens ? curVal[i] : NAN;
+  for (int i = 0; i < nActs && i < 8; i++) if (actSt[i].on) r.bits |= (1 << i);
+  if (hCount < HN) hCount++; else hHead = (hHead + 1) % HN;
+  xSemaphoreGive(histLock);
+}
+
+// --- actuadores ---
+// Peticiones (MQTT/web) y fin de temporizador. Se llama en cada vuelta de taskMqtt.
+void actTick(unsigned long now) {
+  for (int i = 0; i < nActs; i++) {
+    ActState& s = actSt[i];
+    if (actStopReq[i]) { actStopReq[i] = false; actReq[i] = 0; if (s.on) { actWrite(i, false); s.endedAt = now; } }
+    int r = actReq[i];
+    if (r > 0) {
+      actReq[i] = 0;
+      unsigned long sec = (unsigned long)(r > acts[i].maxS ? acts[i].maxS : r);   // tope de seguridad del firmware
+      s.autoRun = false; s.until = now + sec * 1000UL; actWrite(i, true);
+    }
+    if (s.on && (long)(now - s.until) >= 0) { actWrite(i, false); s.endedAt = now; }
+  }
+}
+
+// Regla automática (funciona sin nube). Se evalúa con cada lectura nueva.
+void actAuto(unsigned long now) {
+  for (int i = 0; i < nActs; i++) {
+    const ActCfg& a = acts[i]; ActState& s = actSt[i];
+    if (!a.autoVar[0]) continue;
+    float v = varValue(a.autoVar);
+    if (isnan(v)) continue;
+    if (!s.on) {
+      bool trig = (a.hasBelow && v < a.onBelow) || (a.hasAbove && v > a.onAbove);
+      bool cool = s.endedAt == 0 || (now - s.endedAt) >= a.cooldownS * 1000UL;
+      if (trig && cool) {
+        s.autoRun = true; s.until = now + (unsigned long)(a.autoS > a.maxS ? a.maxS : a.autoS) * 1000UL; actWrite(i, true);
+        Serial.printf("[ACT] regla automática: %s = %.1f\n", a.autoVar, v);
+      }
+    } else if (s.autoRun && a.hasOff) {
+      bool done = a.hasBelow ? (v >= a.offAt) : (a.hasAbove ? (v <= a.offAt) : false);
+      if (done) { actWrite(i, false); s.endedAt = now; }
     }
   }
+}
+// <<< LOGIC
+
+// === CALLBACK MQTT === (comando de actuador: simon/esp32-01/cmd/<clave> con {"seconds":30})
+void mqttCallback(char* topic, byte* payload, unsigned int length) {
+  Serial.printf("[MQTT] RX [%s] %.*s\n", topic, (int)length, (const char*)payload);
+  const char* p = strstr(topic, "/cmd/");
+  if (!p) return;
+  StaticJsonDocument<192> doc;
+  if (deserializeJson(doc, payload, length)) return;
+  int sec = doc["seconds"] | 0;
+  if (sec <= 0) return;
+  xSemaphoreTake(cfgLock, portMAX_DELAY);
+  int i = findAct(p + 5);
+  xSemaphoreGive(cfgLock);
+  if (i >= 0) actReq[i] = sec;
 }
 
 // === WIFI ===
@@ -162,8 +405,8 @@ void setupWifi() {
 // === COLA DE LECTURAS (RAM) ===
 // Si MQTT no está conectado (cambio de puerto, caída del túnel, WiFi) las lecturas se guardan aquí con su
 // hora (NTP) y se envían al reconectar. El backend acepta hasta 24 h de atraso (device_backdate_max_s); más allá se desborda a flash.
-const int QN = 120;               // 120 lecturas x 10 s = 20 min
-const int QLEN = 230;             // bytes por lectura (el JSON mide ~190)
+const int QN = 80;                // 80 lecturas x 10 s ≈ 13 min en RAM
+const int QLEN = PAYLOAD_MAX + 40; // bytes por lectura
 char qbuf[QN][QLEN];
 int qHead = 0, qCount = 0;
 SemaphoreHandle_t qMutex;
@@ -304,47 +547,6 @@ bool sbSend(const String* lines, int n) {
   return ok;
 }
 
-// === HISTORIAL LOCAL (RAM) para la página del propio ESP32 y /api/history ===
-struct Reading {
-  uint32_t ts, up, lux;
-  float vwc_pct, soil_t, ph, ec, n, p, k, air_t, air_rh;
-  uint16_t vwc_raw;
-  bool pump_on;
-};
-const int HN = 360;                 // 1 h a 10 s
-Reading hist[HN];
-int hHead = 0, hCount = 0;
-SemaphoreHandle_t hMutex;
-
-void histPush(const Reading& r) {
-  xSemaphoreTake(hMutex, portMAX_DELAY);
-  hist[(hHead + hCount) % HN] = r;
-  if (hCount < HN) hCount++; else hHead = (hHead + 1) % HN;
-  xSemaphoreGive(hMutex);
-}
-
-// local=false -> el formato exacto que espera el backend; local=true agrega vwc_pct y uptime
-String readingJson(const Reading& r, bool local) {
-  String s = "{\"v\":1";
-  if (r.ts > 0) s += ",\"ts\":" + String(r.ts);
-  s += ",\"vwc_raw\":" + String(r.vwc_raw);
-  s += ",\"soil_t\":" + String(r.soil_t, 2);
-  s += ",\"ph\":" + String(r.ph, 2);
-  s += ",\"ec\":" + String(r.ec, 1);
-  s += ",\"n\":" + String(r.n, 1);
-  s += ",\"p\":" + String(r.p, 1);
-  s += ",\"k\":" + String(r.k, 1);
-  s += ",\"air_t\":" + String(r.air_t, 2);
-  s += ",\"air_rh\":" + String(r.air_rh, 2);
-  s += ",\"lux\":" + String(r.lux);
-  s += ",\"tank_ok\":true";
-  s += String(",\"pump_on\":") + (r.pump_on ? "true" : "false");
-  s += ",\"pump_ma\":" + String(r.pump_on ? 180.0 : 0.0, 1);
-  if (local) s += ",\"vwc_pct\":" + String(r.vwc_pct, 1) + ",\"up\":" + String(r.up);
-  s += "}";
-  return s;
-}
-
 // Hora UNIX (0 si el NTP todavía no sincronizó)
 uint32_t nowEpoch() {
   time_t t = time(nullptr);
@@ -360,6 +562,36 @@ void publishInfo() {
   if (client.publish("simon/esp32-01/info", j.c_str(), true)) lastInfoIp = ip;
 }
 
+// === CONFIGURACIÓN DEL DISPOSITIVO (sensores/actuadores) ===
+bool saveCfgFile(const String& body) {
+  if (!fsOk) return false;
+  File f = LittleFS.open("/config.json", "w");
+  if (!f) return false;
+  f.print(body);
+  f.close();
+  return true;
+}
+
+// GET /devices/esp32-01/config?v=<versión actual>: si no cambió responde corto; si cambió, se aplica y se guarda en flash.
+void fetchDeviceConfig() {
+  if (WiFi.status() != WL_CONNECTED) return;
+  if (xSemaphoreTake(httpMutex, pdMS_TO_TICKS(2000)) != pdTRUE) return;
+  WiFiClientSecure sc;
+  sc.setInsecure();
+  HTTPClient h;
+  h.setTimeout(5000);
+  String body; int code = -1;
+  if (h.begin(sc, String(CLOUD_BASE) + "/devices/" + device_id + "/config?v=" + String(cfgVersion))) {
+    code = h.GET();
+    if (code == HTTP_CODE_OK) body = h.getString();
+    h.end();
+  }
+  sc.stop();
+  xSemaphoreGive(httpMutex);
+  if (code == HTTP_CODE_OK) { if (applyConfig(body) == 2) saveCfgFile(body); }
+  else Serial.printf("[CFG] /config HTTP %d (se sigue con la configuración guardada)\n", code);
+}
+
 // === TAREA 1: MONITOR (CORE 0) ===
 // Consulta la dirección del broker sin saturar la red y solo cambia si el valor nuevo se repite
 // (así una respuesta rara del servidor no provoca un cambio de puerto falso).
@@ -371,10 +603,13 @@ void taskMonitor(void *pvParameters) {
 
   vTaskDelay(pdMS_TO_TICKS(2000));
   fetchConfig();
+  fetchDeviceConfig();
+  TickType_t lastCfg = xTaskGetTickCount();
   lastCheck = xTaskGetTickCount();
   candCount = CONFIRMS;                      // la primera lectura vale sola (arranque)
 
   for (;;) {
+    if (xTaskGetTickCount() - lastCfg >= pdMS_TO_TICKS(30000)) { lastCfg = xTaskGetTickCount(); fetchDeviceConfig(); }
     // Conectado: cada 30 s. Sin conexión MQTT: cada 8 s (puede que el puerto ya haya cambiado).
     TickType_t interval = pdMS_TO_TICKS(mqttUp ? 30000 : 8000);
     bool first = (candCount == CONFIRMS && mqtt_host_cur.length() == 0);
@@ -415,7 +650,6 @@ void taskMonitor(void *pvParameters) {
 // === TAREA 2: MQTT + TELEMETRÍA (CORE 1) ===
 void taskMqtt(void *pvParameters) {
   unsigned long lastPub = 0, lastFlush = 0, lastInfoCheck = 0, lastSb = 0, mqttDownSince = 0;
-  const unsigned long pubInterval = 10000;
 
   client.setCallback(mqttCallback);
   client.setKeepAlive(15);       // detecta una conexión muerta en ~20 s (antes ~37 s)
@@ -465,39 +699,17 @@ void taskMqtt(void *pvParameters) {
 
     if (client.connected()) client.loop();
 
-    // Lectura nueva cada 10 s: SIEMPRE entra a la cola (así se conserva el orden) y se vacía si hay conexión
-    if (millis() - lastPub >= pubInterval) {
+    // Lectura nueva cada reportMs: SIEMPRE entra a la cola (así se conserva el orden) y se vacía si hay conexión
+    if (millis() - lastPub >= reportMs) {
       lastPub = millis();
-
-      // --- Sensores (simulados; aquí van las lecturas reales) ---
-      Reading r;
-      r.ts = nowEpoch();
-      r.up = millis() / 1000;
-      r.air_t  = random(235, 275) / 10.0;
-      r.air_rh = random(500, 750) / 10.0;
-      r.soil_t = random(195, 230) / 10.0;
-      r.vwc_raw = random(2150, 2450);
-      r.ph = random(62, 68) / 10.0;
-      r.ec = random(550, 650);
-      r.n  = random(70, 90);
-      r.p  = random(28, 38);
-      r.k  = random(170, 195);
-      r.lux = random(25000, 60000);
-      float pct = 100.0 * (RAW_DRY - (int)r.vwc_raw) / (float)(RAW_DRY - RAW_WET);
-      r.vwc_pct = pct < 0 ? 0 : (pct > 100 ? 100 : pct);
-
-      // --- Riego autónomo ---
-      if (AUTO_IRRIGATION && !pumpOn && r.vwc_pct < PUMP_ON_BELOW &&
-          (pumpEnd == 0 || millis() - pumpEnd >= PUMP_COOLDOWN_MS)) {
-        pumpAuto = true; pumpUntil = millis() + PUMP_AUTO_S * 1000UL; pumpWrite(true);
-        Serial.printf("[PUMP] riego automático (humedad %.1f%%)\n", r.vwc_pct);
-      } else if (pumpOn && pumpAuto && r.vwc_pct >= PUMP_OFF_ABOVE) {
-        pumpWrite(false); pumpEnd = millis();
-      }
-      r.pump_on = pumpOn;
-
-      histPush(r);
-      qPush(readingJson(r, false).c_str());
+      String payload; uint32_t ts = nowEpoch();
+      xSemaphoreTake(cfgLock, portMAX_DELAY);
+      readSensors();                       // según la configuración descargada (sensores reales o simulados)
+      actAuto(millis());                   // reglas automáticas de los actuadores (sin nube)
+      buildPayload(payload, ts);
+      histPushNow(ts, millis() / 1000);
+      xSemaphoreGive(cfgLock);
+      qPush(payload.c_str());
       Serial.printf("[TX] en cola (%d%s)%s\n", qCount, spillPending ? "+flash" : "", client.connected() ? "" : " - sin conexión");
     }
 
@@ -511,13 +723,10 @@ void taskMqtt(void *pvParameters) {
       if (n > 0 && sbSend(batch, n)) { qAck(n, fs, se); Serial.printf("[SB] %d lecturas enviadas a Supabase (quedan %d)\n", n, qCount); }
     }
 
-    // Peticiones de bomba (web local o MQTT) y fin de temporizador
-    if (pumpStopReq) { pumpStopReq = false; pumpReq = 0; if (pumpOn) { pumpWrite(false); pumpEnd = millis(); } }
-    if (pumpReq > 0) {
-      int sec = pumpReq > PUMP_MAX_S ? PUMP_MAX_S : pumpReq; pumpReq = 0;
-      pumpAuto = false; pumpUntil = millis() + sec * 1000UL; pumpWrite(true);
-    }
-    if (pumpOn && (long)(millis() - pumpUntil) >= 0) { pumpWrite(false); pumpEnd = millis(); }
+    // Peticiones a actuadores (web local o MQTT) y fin de temporizadores
+    xSemaphoreTake(cfgLock, portMAX_DELAY);
+    actTick(millis());
+    xSemaphoreGive(cfgLock);
 
     // Si la IP cambió (otro router, DHCP), se vuelve a anunciar
     if (client.connected() && millis() - lastInfoCheck >= 5000) {
@@ -552,29 +761,34 @@ h1{font-size:18px;margin:0}main{padding:12px 16px;max-width:560px;margin:auto}
 .g{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0}
 .c{background:#fff;border-radius:10px;padding:8px 10px}.c b{display:block;font-size:20px}
 canvas{width:100%;height:90px;background:#fff;border-radius:10px}
-button{font:inherit;padding:8px 12px;border:0;border-radius:8px;background:#1f5c38;color:#fff;margin:4px 4px 0 0}
+button,select{font:inherit;padding:8px 12px;border:0;border-radius:8px;background:#1f5c38;color:#fff;margin:4px 4px 0 0}
+select{background:#fff;color:#1b2a21;border:1px solid #ccc}
 </style></head><body>
 <header><h1>Simón · esp32-01 · modo local</h1></header><main>
 <div id="chips"></div>
 <div id="cloud"></div>
 <div class="g" id="g"></div>
-<div>Humedad (última hora)</div><canvas id="cv" width="520" height="90"></canvas>
-<div><button onclick="pump(15)">Regar 15 s</button><button onclick="pump(0)">Parar bomba</button></div>
+<div id="acts"></div>
+<div style="margin-top:10px">Historial <select id="sel" onchange="hist()"></select></div><canvas id="cv" width="520" height="90"></canvas>
 <p style="font-size:12px;color:#667">Datos directos del ESP32. Al volver la nube, las lecturas guardadas se envían solas.</p>
 </main>
 <script>
-const CLOUD="%CLOUD%";let okN=0;
-const L=[["vwc_pct","Humedad","%"],["soil_t","T suelo","°C"],["air_t","T aire","°C"],["air_rh","HR aire","%"],["ph","pH",""],["ec","EC","µS"],["lux","Luz","lx"],["pump_on","Bomba",""]];
+const CLOUD="%CLOUD%";let okN=0,keys="";
 function chip(t,ok){return '<span class="chip '+(ok?'ok':'bad')+'">'+t+'</span>'}
-async function st(){try{const s=await (await fetch('/api/state',{cache:'no-store'})).json();const r=s.reading||{};
-document.getElementById('chips').innerHTML=chip('Local OK',1)+chip(s.mqtt?'Nube conectada':'Sin nube',s.mqtt)+chip('Pendientes: '+s.pending,s.pending==0)+chip('WiFi '+s.rssi+' dBm',s.rssi>-80)+(s.ap?chip('Red propia activa',0):'');
-document.getElementById('g').innerHTML=L.map(x=>'<div class="c">'+x[1]+'<b>'+(x[0]=='pump_on'?(r[x[0]]?'ON':'OFF'):(r[x[0]]==null?'–':r[x[0]]))+(x[0]=='pump_on'?'':' '+x[2])+'</b></div>').join('')}catch(e){document.getElementById('chips').innerHTML=chip('Sin respuesta del ESP32',0)}}
-async function hist(){try{const h=await (await fetch('/api/history?n=360',{cache:'no-store'})).json();const c=document.getElementById('cv'),x=c.getContext('2d');x.clearRect(0,0,c.width,c.height);if(h.length<2)return;
-const v=h.map(r=>r.vwc_pct),mn=Math.min(...v,0),mx=Math.max(...v,60);x.strokeStyle='#1f5c38';x.lineWidth=2;x.beginPath();v.forEach((y,i)=>{const px=i/(v.length-1)*c.width,py=c.height-(y-mn)/(mx-mn)*(c.height-8)-4;i?x.lineTo(px,py):x.moveTo(px,py)});x.stroke()}catch(e){}}
-async function pump(s){await fetch('/api/pump?s='+s,{method:'POST'});st()}
+function esc(t){return String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+async function st(){try{const s=await (await fetch('/api/state',{cache:'no-store'})).json();
+document.getElementById('chips').innerHTML=chip('Local OK',1)+chip(s.mqtt?'Nube conectada':'Sin nube',s.mqtt)+chip('Pendientes: '+s.pending,s.pending==0)+chip('WiFi '+s.rssi+' dBm',s.rssi>-80)+chip('Config v'+s.cfg_version,1)+(s.ap?chip('Red propia activa',0):'');
+document.getElementById('g').innerHTML=s.values.map(x=>'<div class="c">'+esc(x.label||x.key)+'<b>'+(x.value==null?'–':x.value)+' <small>'+esc(x.unit)+'</small></b></div>').join('');
+document.getElementById('acts').innerHTML=s.actuators.map(a=>'<div class="c" style="margin:6px 0">'+esc(a.label||a.key)+': <b style="display:inline">'+(a.on?'ENCENDIDO':'apagado')+'</b> <button onclick="act(\''+esc(a.key)+'\',15)">15 s</button><button onclick="act(\''+esc(a.key)+'\',0)">Parar</button></div>').join('');
+const k=s.values.map(x=>x.key).join(',');if(k!==keys){keys=k;const sel=document.getElementById('sel'),cur=sel.value;sel.innerHTML=s.values.map(x=>'<option value="'+esc(x.key)+'">'+esc(x.label||x.key)+'</option>').join('');if(cur)sel.value=cur;hist()}
+}catch(e){document.getElementById('chips').innerHTML=chip('Sin respuesta del ESP32',0)}}
+async function hist(){try{const h=await (await fetch('/api/history?n=240',{cache:'no-store'})).json();const i=h.keys.indexOf(document.getElementById('sel').value);if(i<0)return;
+const c=document.getElementById('cv'),x=c.getContext('2d');x.clearRect(0,0,c.width,c.height);const v=h.rows.map(r=>r[2+i]).filter(y=>y!=null);if(v.length<2)return;
+const mn=Math.min(...v),mx=Math.max(...v),d=(mx-mn)||1;x.strokeStyle='#1f5c38';x.lineWidth=2;x.beginPath();v.forEach((y,j)=>{const px=j/(v.length-1)*c.width,py=c.height-(y-mn)/d*(c.height-10)-5;j?x.lineTo(px,py):x.moveTo(px,py)});x.stroke()}catch(e){}}
+async function act(k,s){await fetch('/api/act?key='+encodeURIComponent(k)+'&s='+s,{method:'POST'});st()}
 async function cloud(){const b=document.getElementById('cloud');try{const ac=new AbortController();setTimeout(()=>ac.abort(),4000);const r=await fetch(CLOUD+'/health',{cache:'no-store',signal:ac.signal});if(!r.ok)throw 0;okN++}catch(e){okN=0}
 if(okN>=3){b.style.display='block';b.innerHTML='La nube volvió. <a href="'+CLOUD+'/">Volver a la nube</a>';if(location.hash.indexOf('auto')>=0)location.href=CLOUD+'/'}else b.style.display='none'}
-st();hist();cloud();setInterval(st,3000);setInterval(hist,15000);setInterval(cloud,10000);
+st();cloud();setInterval(st,3000);setInterval(hist,15000);setInterval(cloud,10000);
 </script></body></html>
 )HTML";
 
@@ -588,27 +802,38 @@ void cors() {
   server.sendHeader("Cache-Control", "no-store");
 }
 
-bool lastReading(Reading& r) {
-  xSemaphoreTake(hMutex, portMAX_DELAY);
-  bool has = hCount > 0;
-  if (has) r = hist[(hHead + hCount - 1) % HN];
-  xSemaphoreGive(hMutex);
-  return has;
+String jsonEsc(const char* t) {
+  String o;
+  for (; *t; t++) { if (*t == '"' || *t == '\\') o += '\\'; if ((uint8_t)*t >= 32) o += *t; }
+  return o;
 }
 
+String numOrNull(float v) { if (isnan(v)) return "null"; char b[24]; fmtNum(b, sizeof(b), v); return String(b); }
+
 void handleState() {
-  Reading r; bool has = lastReading(r);
   String s = "{\"device_id\":\"" + String(device_id) + "\",\"fw\":\"" FW_VERSION "\"";
   s += ",\"ts\":" + String(nowEpoch()) + ",\"uptime_s\":" + String(millis() / 1000);
   s += ",\"ip\":\"" + WiFi.localIP().toString() + "\",\"rssi\":" + String(WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : -127);
   s += String(",\"mqtt\":") + (mqttUp ? "true" : "false");
   s += String(",\"ap\":") + (apOn ? "true" : "false");
   s += ",\"pending\":" + String(qCount) + String(",\"pending_flash\":") + (spillPending ? "true" : "false");
-  s += String(",\"pump_on\":") + (pumpOn ? "true" : "false");
-  s += ",\"reading\":" + (has ? readingJson(r, true) : String("null")) + "}";
+  s += ",\"cfg_version\":" + String(cfgVersion) + ",\"values\":[";
+  xSemaphoreTake(cfgLock, portMAX_DELAY);
+  for (int i = 0; i < nSens; i++) {
+    if (i) s += ",";
+    s += "{\"key\":\"" + jsonEsc(sens[i].key) + "\",\"label\":\"" + jsonEsc(sens[i].label) + "\",\"unit\":\"" + jsonEsc(sens[i].unit) + "\",\"value\":" + numOrNull(curVal[i]) + "}";
+  }
+  s += "],\"actuators\":[";
+  for (int i = 0; i < nActs; i++) {
+    if (i) s += ",";
+    s += "{\"key\":\"" + jsonEsc(acts[i].key) + "\",\"label\":\"" + jsonEsc(acts[i].label) + "\",\"on\":" + (actSt[i].on ? "true" : "false") + "}";
+  }
+  xSemaphoreGive(cfgLock);
+  s += "]}";
   cors(); server.send(200, "application/json", s);
 }
 
+// {"keys":[...],"rows":[[ts,uptime,v1,v2,...],...]} en trozos para no gastar RAM
 void handleHistory() {
   int n = server.hasArg("n") ? server.arg("n").toInt() : 120;
   if (n < 1) n = 1;
@@ -616,24 +841,36 @@ void handleHistory() {
   cors();
   server.setContentLength(CONTENT_LENGTH_UNKNOWN);
   server.send(200, "application/json", "");
-  server.sendContent("[");
-  xSemaphoreTake(hMutex, portMAX_DELAY);
+  xSemaphoreTake(cfgLock, portMAX_DELAY);
+  int nk = nSens;
+  String head = "{\"keys\":[";
+  for (int i = 0; i < nk; i++) head += String(i ? "," : "") + "\"" + jsonEsc(sens[i].key) + "\"";
+  xSemaphoreGive(cfgLock);
+  server.sendContent(head + "],\"rows\":[");
+  xSemaphoreTake(histLock, portMAX_DELAY);
   int cnt = hCount < n ? hCount : n;
-  Reading copy[1];
   for (int i = hCount - cnt; i < hCount; i++) {
-    copy[0] = hist[(hHead + i) % HN];
-    xSemaphoreGive(hMutex);                       // no se retiene el mutex mientras se escribe a la red
-    server.sendContent((i > hCount - cnt ? "," : "") + readingJson(copy[0], true));
-    xSemaphoreTake(hMutex, portMAX_DELAY);
+    HistRow r = hist[(hHead + i) % HN];
+    xSemaphoreGive(histLock);                     // no se retiene el candado mientras se escribe a la red
+    String row = String(i > hCount - cnt ? "," : "") + "[" + String(r.ts) + "," + String(r.up);
+    for (int k = 0; k < nk; k++) row += "," + numOrNull(r.v[k]);
+    server.sendContent(row + "]");
+    xSemaphoreTake(histLock, portMAX_DELAY);
   }
-  xSemaphoreGive(hMutex);
-  server.sendContent("]");
+  xSemaphoreGive(histLock);
+  server.sendContent("]}");
   server.sendContent("");
 }
 
-void handlePump() {
+// /api/act?key=pump&s=15  (s=0 para parar). /api/pump = atajo para la clave "pump".
+void handleAct() {
+  String key = server.hasArg("key") ? server.arg("key") : String("pump");
   int sec = server.hasArg("s") ? server.arg("s").toInt() : 0;
-  if (sec > 0) pumpReq = sec; else pumpStopReq = true;
+  xSemaphoreTake(cfgLock, portMAX_DELAY);
+  int i = findAct(key.c_str());
+  xSemaphoreGive(cfgLock);
+  if (i < 0) { cors(); server.send(404, "application/json", "{\"ok\":false,\"error\":\"actuador desconocido\"}"); return; }
+  if (sec > 0) actReq[i] = sec; else actStopReq[i] = true;
   cors(); server.send(202, "application/json", String("{\"ok\":true,\"seconds\":") + sec + "}");
 }
 
@@ -644,8 +881,10 @@ void startWeb() {
   });
   server.on("/api/state", HTTP_GET, handleState);
   server.on("/api/history", HTTP_GET, handleHistory);
-  server.on("/api/pump", HTTP_POST, handlePump);
-  server.on("/api/pump", HTTP_GET, handlePump);
+  server.on("/api/act", HTTP_POST, handleAct);
+  server.on("/api/act", HTTP_GET, handleAct);
+  server.on("/api/pump", HTTP_POST, handleAct);
+  server.on("/api/pump", HTTP_GET, handleAct);
   server.onNotFound([]() {
     if (server.method() == HTTP_OPTIONS) { cors(); server.send(204); }          // preflight CORS
     else { cors(); server.send(404, "text/plain", "no encontrado"); }
@@ -684,12 +923,17 @@ void setup() {
   cfgMutex  = xSemaphoreCreateMutex();
   httpMutex = xSemaphoreCreateMutex();
   qMutex    = xSemaphoreCreateMutex();
-  hMutex    = xSemaphoreCreateMutex();
+  cfgLock   = xSemaphoreCreateMutex();
+  histLock  = xSemaphoreCreateMutex();
 
-  if (PUMP_PIN >= 0) { pinMode(PUMP_PIN, OUTPUT); digitalWrite(PUMP_PIN, PUMP_ACTIVE_HIGH ? LOW : HIGH); }   // bomba apagada al arrancar
   fsOk = LittleFS.begin(true);
   spillPending = fsOk && LittleFS.exists(SPILL);   // quedaron lecturas en flash de antes del reinicio
   Serial.printf("[FS] %s%s\n", fsOk ? "LittleFS OK" : "LittleFS FALLÓ (sin respaldo en flash)", spillPending ? " | hay lecturas pendientes" : "");
+
+  // Configuración guardada en flash (funciona sin red); si no hay, la de fábrica (sensores simulados)
+  String saved;
+  if (fsOk && LittleFS.exists("/config.json")) { File f = LittleFS.open("/config.json", "r"); if (f) { saved = f.readString(); f.close(); } }
+  if (saved.length() == 0 || applyConfig(saved) != 2) applyConfig(String(DEFAULT_CFG));
 
   setupWifi();
   WiFi.setAutoReconnect(true);

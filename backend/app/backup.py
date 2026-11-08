@@ -16,7 +16,7 @@ from .config import settings
 log = logging.getLogger("simon.backup")
 
 COLS = ["ts", "device_id", "vwc_raw", "soil_t", "ph", "ec", "n", "p", "k", "air_t", "air_rh",
-        "lux", "tank_ok", "pump_on", "pump_ma", "vwc_pct", "vpd_kpa"]
+        "lux", "tank_ok", "pump_on", "pump_ma", "vwc_pct", "vpd_kpa", "extra"]
 DEVICE_COLS = ["device_id", "name", "crop", "soil_type", "vwc_raw_dry", "vwc_raw_wet", "sowing_date",
                "soil_depth_cm", "pot_area_cm2", "pump_flow_ml_min", "created_at"]   # sin ingest_key_hash (secreto)
 
@@ -34,9 +34,15 @@ CREATE TABLE IF NOT EXISTS simon_telemetry (
     vwc_raw INTEGER, soil_t DOUBLE PRECISION, ph DOUBLE PRECISION, ec DOUBLE PRECISION,
     n DOUBLE PRECISION, p DOUBLE PRECISION, k DOUBLE PRECISION, air_t DOUBLE PRECISION,
     air_rh DOUBLE PRECISION, lux DOUBLE PRECISION, tank_ok BOOLEAN, pump_on BOOLEAN,
-    pump_ma DOUBLE PRECISION, vwc_pct DOUBLE PRECISION, vpd_kpa DOUBLE PRECISION,
+    pump_ma DOUBLE PRECISION, vwc_pct DOUBLE PRECISION, vpd_kpa DOUBLE PRECISION, extra JSONB,
     PRIMARY KEY (device_id, ts)
 );
+ALTER TABLE simon_telemetry ADD COLUMN IF NOT EXISTS extra JSONB;
+-- Copia de la configuración de sensores/actuadores/indicadores (para recuperarla si se pierde la base local)
+CREATE TABLE IF NOT EXISTS simon_device_config (
+    device_id TEXT PRIMARY KEY, version INTEGER NOT NULL, config JSONB NOT NULL, synced_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE simon_device_config ENABLE ROW LEVEL SECURITY;
 -- Buzón: lo único que la clave pública (anon) puede hacer es INSERTAR aquí (el ESP32 lo usa si cae el servidor).
 -- No puede leer. El backend valida cada fila (clave del dispositivo, rangos) antes de pasarla a la base real.
 CREATE TABLE IF NOT EXISTS simon_inbox (
@@ -85,6 +91,15 @@ async def sync_devices(local: asyncpg.Pool, remote: asyncpg.Pool) -> None:
     rows = await local.fetch(f"SELECT {', '.join(DEVICE_COLS)} FROM devices")
     if rows:
         await remote.executemany(UPSERT_DEVICE, [tuple(r[c] for c in DEVICE_COLS) for r in rows])
+    from .devcfg import load_config
+    have = {r["device_id"]: r["version"] for r in await remote.fetch("SELECT device_id, version FROM simon_device_config")}
+    for r in rows:
+        cfg = await load_config(local, r["device_id"])
+        if cfg and have.get(r["device_id"]) != cfg["version"]:
+            await remote.execute(
+                "INSERT INTO simon_device_config (device_id, version, config) VALUES ($1, $2, $3::jsonb) "
+                "ON CONFLICT (device_id) DO UPDATE SET version = EXCLUDED.version, config = EXCLUDED.config, synced_at = now()",
+                r["device_id"], cfg["version"], json.dumps(cfg))
 
 
 async def drain(local: asyncpg.Pool, remote: asyncpg.Pool, batch: int) -> int:
@@ -112,8 +127,7 @@ async def pull_inbox(app, remote: asyncpg.Pool, batch: int) -> dict:
     """Supabase -> base local: lecturas que el ESP32 dejó en simon_inbox. Cada fila se valida; las inválidas se descartan.
     Las válidas entran por el mismo camino que MQTT (process_telemetry) y se borran del buzón."""
     from pydantic import ValidationError
-    from .ingest import process_telemetry
-    from .schemas import Telemetry
+    from .ingest import parse_telemetry, process_telemetry
 
     rows = await remote.fetch("SELECT id, device_id, device_key, payload FROM simon_inbox ORDER BY id LIMIT $1", batch)
     ok = bad = 0
@@ -129,7 +143,7 @@ async def pull_inbox(app, remote: asyncpg.Pool, batch: int) -> dict:
                 raise ValueError("clave de dispositivo inválida")
             payload = r["payload"]
             data = json.loads(payload) if isinstance(payload, str) else payload
-            t = Telemetry.model_validate(data)
+            t = parse_telemetry(data)
             if await process_telemetry(app, did, t) is None:
                 raise ValueError("dispositivo no permitido")
             ok += 1
@@ -152,6 +166,15 @@ async def restore(app, remote: asyncpg.Pool, days: int) -> dict:
         await app.state.pool.executemany(
             f"INSERT INTO devices ({', '.join(dev_cols)}) VALUES ({', '.join(f'${i+1}' for i in range(len(dev_cols)))}) ON CONFLICT DO NOTHING",
             [tuple(r[c] for c in dev_cols) for r in drows])
+    restored_cfg = 0
+    from .devcfg import DeviceConfig, load_config, save_config
+    for r in await remote.fetch("SELECT device_id, config FROM simon_device_config"):
+        local = await load_config(app.state.pool, r["device_id"])
+        if local is not None and not (local["sensors"] or local["actuators"] or local["indicators"]):
+            raw = json.loads(r["config"]) if isinstance(r["config"], str) else r["config"]
+            await save_config(app.state.pool, r["device_id"], DeviceConfig.model_validate(
+                {k: raw[k] for k in ("report_interval_s", "sensors", "actuators", "indicators")}))
+            restored_cfg += 1
     total = 0
     last_ts, last_dev = datetime.now(timezone.utc) - timedelta(days=days), ""
     ins = (f"INSERT INTO telemetry ({', '.join(COLS)}) VALUES ({', '.join(f'${i+1}' for i in range(len(COLS)))}) "
@@ -161,7 +184,7 @@ async def restore(app, remote: asyncpg.Pool, days: int) -> dict:
             f"SELECT {', '.join(COLS)} FROM simon_telemetry WHERE (ts, device_id) > ($1, $2) ORDER BY ts, device_id LIMIT 1000",
             last_ts, last_dev)
         if not rows:
-            return {"devices": len(drows), "telemetry_read": total}
+            return {"devices": len(drows), "configs": restored_cfg, "telemetry_read": total}
         await app.state.pool.executemany(ins, [tuple(r[c] for c in COLS) for r in rows])
         total += len(rows)
         last_ts, last_dev = rows[-1]["ts"], rows[-1]["device_id"]

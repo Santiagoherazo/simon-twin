@@ -1,13 +1,13 @@
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class Telemetry(BaseModel):
     """Mensaje de telemetría (MQTT simon/<device>/telemetry o POST /ingest/<device>).
     Todos los sensores son opcionales: un dispositivo manda solo lo que tiene."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="allow")   # las claves no estándar son sensores personalizados (van a telemetry.extra)
 
     v: int = 1                                   # versión del esquema
     ts: float | None = Field(default=None, allow_inf_nan=False)   # epoch en segundos (NTP)
@@ -24,6 +24,15 @@ class Telemetry(BaseModel):
     tank_ok: bool | None = None
     pump_on: bool | None = None
     pump_ma: float | None = Field(default=None, ge=0, le=5000, allow_inf_nan=False)
+
+
+    @field_validator("vwc_raw", mode="before")
+    @classmethod
+    def _raw_entero(cls, v):
+        """El ADC promediado puede dar decimales (2200.375): se redondea en vez de rechazar toda la lectura."""
+        if isinstance(v, float) and v == v and abs(v) < 1e9:
+            return int(round(v))
+        return v
 
 
 class ImportBody(BaseModel):
@@ -58,9 +67,13 @@ class DeviceUpdate(BaseModel):
 # ---- Simulación what-if ----------------------------------------------------------------
 
 class SimEvent(BaseModel):
-    at_hour: float = Field(ge=0, le=720)
-    type: Literal["irrigation", "rain"]
+    at_hour: float = Field(ge=0, le=4800)
+    type: Literal["irrigation", "rain", "fertilize"]
     mm: float | None = Field(default=None, gt=0, le=200)
+    # solo fertilize: aumento del nivel de N, P, K (mismas unidades que el sensor, mg/kg)
+    n: float = Field(default=0, ge=0, le=500)
+    p: float = Field(default=0, ge=0, le=500)
+    k: float = Field(default=0, ge=0, le=500)
     seconds: float | None = Field(default=None, gt=0, le=3600, description="solo riego: segundos de bomba")
 
 
@@ -79,6 +92,7 @@ class SimWeather(BaseModel):
 class SimAutoIrrigation(BaseModel):
     enabled: bool = False
     mm: float = Field(default=15.0, gt=0, le=100)   # lámina por riego cuando el suelo baja del umbral
+    trigger_aw_pct: float | None = Field(default=None, ge=0, le=100, description="riega cuando el agua útil baja de este %; vacío = umbral FAO-56 del cultivo")
 
 
 class SimOverrides(BaseModel):
@@ -87,12 +101,29 @@ class SimOverrides(BaseModel):
     vwc_pct: float | None = Field(default=None, ge=0, le=100)
     gdd: float | None = Field(default=None, ge=0, le=5000)
     soil_depth_cm: float | None = Field(default=None, gt=0, le=300)
+    # parámetros del cultivo editados (claves de cropmodel.PARAM_DOC, p. ej. "stress.heat_c")
+    crop_params: dict[str, float] = Field(default_factory=dict, max_length=40)
+    drainage: Literal["bueno", "regular", "malo", "sin_salida"] | None = Field(
+        default=None, description="qué tan rápido sale el exceso de agua; 'sin_salida' = maceta sin huecos")
+    # química del sustrato para simular (si no se envía, se usa la última lectura de los sensores)
+    ph: float | None = Field(default=None, ge=0, le=14)
+    ec: float | None = Field(default=None, ge=0, le=20000)
+    n: float | None = Field(default=None, ge=0, le=1000)
+    p: float | None = Field(default=None, ge=0, le=1000)
+    k: float | None = Field(default=None, ge=0, le=1000)
+
+
+class SimManagement(BaseModel):
+    """Manejo fitosanitario (0 = ninguno, 1 = control perfecto) para comparar estrategias."""
+    disease_control: float = Field(default=0.0, ge=0, le=1)
+    pest_control: float = Field(default=0.0, ge=0, le=1)
 
 
 class SimulateRequest(BaseModel):
-    hours: float = Field(default=72, ge=1, le=720)
-    step_minutes: int = Field(default=30, ge=5, le=120)
+    hours: float = Field(default=72, ge=1, le=4800)
+    step_minutes: int = Field(default=30, ge=5, le=360)
     weather: SimWeather = SimWeather()
-    events: list[SimEvent] = Field(default_factory=list, max_length=200)
+    events: list[SimEvent] = Field(default_factory=list, max_length=400)
     auto_irrigation: SimAutoIrrigation = SimAutoIrrigation()
     overrides: SimOverrides = SimOverrides()
+    management: SimManagement = SimManagement()

@@ -1,0 +1,35 @@
+# Perfil de cultivo: FRIJOL (HABICHUELA) (Phaseolus vulgaris)
+# Valores indicativos para un prototipo; validar con fuentes agronómicas locales (AGROSAVIA, ICA, UNAL).
+# Fuentes y supuestos en docs/modelo-cultivo.md
+id: frijol
+name: Frijol (habichuela)
+scientific: Phaseolus vulgaris
+note: Valores indicativos para un prototipo; validar con fuentes agronómicas locales (AGROSAVIA, ICA, UNAL).
+category: legume
+gdd: {base_c: 10, cap_c: 30, maturity: 900}
+water: {p_depletion: 0.45}
+optimal:
+  air_t: [18, 27]
+  soil_t: [16, 26]
+  ph: [6.0, 7.0]
+  ec: [200, 1000]
+  n: [20, 80]
+  p: [20, 60]
+  k: [120, 300]
+  vpd_kpa: [0.6, 1.4]
+  light: [20000, 60000]
+weights: {soil_moisture: 3.0, air_t: 1.5, soil_t: 1.0, ph: 1.0, ec: 0.5, n: 1.0, p: 1.0, k: 1.0, vpd_kpa: 1.0, light: 0.5}
+stages:
+- {code: ES, name: Establecimiento, gdd_start: 0, kc: 0.5, root_depth_cm: 15}
+- {code: VG, name: Vegetativo, gdd_start: 150, kc: 0.75, root_depth_cm: 35}
+- {code: FL, name: Floración, gdd_start: 380, kc: 1.05, root_depth_cm: 50}
+- {code: FR, name: Llenado de vaina, gdd_start: 520, kc: 1.05, root_depth_cm: 60}
+- {code: MD, name: Madurez, gdd_start: 760, kc: 0.6, root_depth_cm: 60}
+plant_visual: {max_height_cm: 60, height_full_gdd: 500, max_leaves: 16, leaves_full_gdd: 500, max_lai: 2.5, tassel_from_stage: FL,
+  fruit_from_stage: FR}
+repro_stages: [FL, FR]
+yield_potential_kg_m2: 1.0
+stress: {ec_threshold_ds: 1.0, ec_slope_pct: 19, hypoxia_onset_h: 36, root_lethal_h: 72, susc_rootrot: 1.4}
+sources: ['FAO-56 (Allen et al., 1998): Kc, p de agotamiento y duración de etapas (valores de tabla; GDD derivados
+    de la duración × temperatura media típica)', 'FAO-29 / Maas-Hoffman: umbral y pendiente de salinidad', 'Manitoba
+    Agriculture: el frijol seco es de los cultivos menos tolerantes al exceso de agua']

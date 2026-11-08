@@ -45,6 +45,12 @@ class CropProfile(BaseModel):
     weights: dict[str, float] = {}
     stages: list[Stage]
     plant_visual: PlantVisual
+    # --- motor de ciclo de cultivo (opcionales; ver cropmodel.py) ---
+    category: str = "fruit"                   # fruit | leaf | grain | tuber | legume | herb
+    stress: dict[str, float | list[float]] = {}
+    repro_stages: list[str] = []              # etapas sensibles a calor/frío/sequía (floración y cuajado)
+    yield_potential_kg_m2: float = 3.0
+    sources: list[str] = []
 
     @model_validator(mode="after")
     def _check(self):

@@ -51,6 +51,44 @@ CREATE TABLE IF NOT EXISTS backup_outbox (
     ts         TIMESTAMPTZ NOT NULL
 );
 
+-- Variables personalizadas (sensores que no son columnas) e indicadores calculados
+ALTER TABLE telemetry ADD COLUMN IF NOT EXISTS extra JSONB;
+
+-- Configuración editable del dispositivo: la descarga el ESP32 (GET /devices/<id>/config)
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS config_version INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS report_interval_s INTEGER NOT NULL DEFAULT 10;
+
+CREATE TABLE IF NOT EXISTS device_sensors (
+    id BIGSERIAL PRIMARY KEY,
+    device_id TEXT NOT NULL REFERENCES devices(device_id) ON DELETE CASCADE,
+    position INTEGER NOT NULL DEFAULT 0,
+    key TEXT NOT NULL, label TEXT NOT NULL, driver TEXT NOT NULL,
+    pin INTEGER, param INTEGER, unit TEXT NOT NULL DEFAULT '',
+    scale DOUBLE PRECISION NOT NULL DEFAULT 1, offset_v DOUBLE PRECISION NOT NULL DEFAULT 0,
+    sim_min DOUBLE PRECISION, sim_max DOUBLE PRECISION, min_ok DOUBLE PRECISION, max_ok DOUBLE PRECISION,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    UNIQUE (device_id, key)
+);
+CREATE TABLE IF NOT EXISTS device_actuators (
+    id BIGSERIAL PRIMARY KEY,
+    device_id TEXT NOT NULL REFERENCES devices(device_id) ON DELETE CASCADE,
+    position INTEGER NOT NULL DEFAULT 0,
+    key TEXT NOT NULL, label TEXT NOT NULL, driver TEXT NOT NULL DEFAULT 'relay',
+    pin INTEGER, active_high BOOLEAN NOT NULL DEFAULT TRUE, max_seconds INTEGER NOT NULL DEFAULT 120,
+    auto_variable TEXT, auto_on_below DOUBLE PRECISION, auto_on_above DOUBLE PRECISION, auto_off_at DOUBLE PRECISION,
+    auto_seconds INTEGER NOT NULL DEFAULT 30, cooldown_s INTEGER NOT NULL DEFAULT 600,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    UNIQUE (device_id, key)
+);
+CREATE TABLE IF NOT EXISTS device_indicators (
+    id BIGSERIAL PRIMARY KEY,
+    device_id TEXT NOT NULL REFERENCES devices(device_id) ON DELETE CASCADE,
+    position INTEGER NOT NULL DEFAULT 0,
+    key TEXT NOT NULL, label TEXT NOT NULL, formula TEXT NOT NULL, unit TEXT NOT NULL DEFAULT '',
+    min_ok DOUBLE PRECISION, max_ok DOUBLE PRECISION, enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    UNIQUE (device_id, key)
+);
+
 CREATE INDEX IF NOT EXISTS telemetry_device_ts_idx ON telemetry (device_id, ts DESC);
 
 INSERT INTO devices (device_id, name, crop, soil_type, sowing_date)
@@ -59,3 +97,13 @@ ON CONFLICT DO NOTHING;
 INSERT INTO devices (device_id, name, crop, soil_type)
 VALUES ('esp32-01', 'Simón (ESP32 real)', 'maiz', 'franco')
 ON CONFLICT DO NOTHING;
+
+-- Cuadernos de modelos (panel admin > Modelos)
+CREATE TABLE IF NOT EXISTS notebooks (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    device_id  TEXT,
+    cells      JSONB NOT NULL DEFAULT '[]'::jsonb,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+ALTER TABLE notebooks ADD COLUMN IF NOT EXISTS live BOOLEAN NOT NULL DEFAULT false;

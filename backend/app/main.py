@@ -12,16 +12,19 @@ from datetime import date, datetime, timezone
 import asyncpg
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 
 from .config import settings
 from .crops import get_crop, load_profiles
 from .backup import backfill, backup_loop, pending as backup_pending, pull_inbox, restore
 from .backup import drain as backup_drain
 from .cache import Cache, key_hash
-from .migrate import migrate
+from . import notebook as nbk
+from .devcfg import DRIVER_CATALOG, DeviceConfig, load_config, pin_warnings, save_config
+from .migrate import migrate, seed_device_configs
 from .ingest import ensure_device, mqtt_loop, process_telemetry, telemetry_args
 from .schemas import (
-    DeviceCreate, DeviceUpdate, ImportBody, PumpCommand, SimulateRequest, Telemetry,
+    DeviceCreate, DeviceUpdate, ImportBody, PumpCommand, SimOverrides, SimulateRequest, Telemetry,
 )
 from .simulate import simulate
 from .soils import SOILS, get_soil
@@ -44,18 +47,21 @@ async def lifespan(app: FastAPI):
     else:
         raise RuntimeError("no se pudo conectar a la base de datos")
     await migrate(app.state.pool)
+    await seed_device_configs(app.state.pool)
     app.state.mqtt = None
     app.state.twin_cache = {}
     app.state.bg_tasks = set()
     app.state.cache = Cache(settings.redis_url)
     await app.state.cache.start()
     app.state.backup = {"enabled": False}
+    app.state.kernels = nbk.Kernels()
     app.state.remote_pool = None
     task = asyncio.create_task(mqtt_loop(app))
     backup_task = asyncio.create_task(backup_loop(app))
     yield
     task.cancel()
     backup_task.cancel()
+    await app.state.kernels.stop_all()
     await app.state.cache.close()
     for t in list(app.state.bg_tasks):
         t.cancel()
@@ -120,11 +126,22 @@ async def mqtt_config():
 @app.get("/crops")
 async def crops():
     return [
-        {"id": p.id, "name": p.name, "scientific": p.scientific, "note": p.note,
+        {"id": p.id, "name": p.name, "scientific": p.scientific, "note": p.note, "category": p.category,
+         "yield_potential_kg_m2": p.yield_potential_kg_m2, "sources": p.sources,
          "stages": [{"code": s.code, "name": s.name, "gdd_start": s.gdd_start} for s in p.stages],
          "optimal": p.optimal}
         for p in load_profiles().values()
     ]
+
+
+@app.get("/crops/{crop_id}/params")
+async def crop_params(crop_id: str):
+    """Parámetros editables del cultivo (con unidades, rangos y ayuda) para el panel de simulación."""
+    from .cropmodel import param_values
+    try:
+        return param_values(get_crop(crop_id))
+    except ValueError as e:
+        raise HTTPException(404, str(e))
 
 
 @app.get("/soils")
@@ -410,3 +427,279 @@ async def sync_run():
 async def sync_restore(days: int = Query(30, ge=1, le=3650)):
     """Supabase -> base local: recupera lo que falte localmente (recuperación tras perder la base)."""
     return await restore(app, _remote_or_409(), days)
+
+
+# ------------------------------------------------------------------ configuración del dispositivo ----------
+
+@app.get("/catalog")
+async def catalog():
+    """Tipos de sensor y actuador disponibles (para el panel admin)."""
+    return {"drivers": DRIVER_CATALOG}
+
+
+@app.get("/catalog/hardware")
+async def catalog_hardware():
+    """Configuración lista del hardware confirmado (DHT11, suelo + DS18B20, 4 LDR, bomba y relé 2)."""
+    from .devcfg import config_hardware_confirmado
+    return config_hardware_confirmado().model_dump()
+
+
+@app.get("/devices/{device_id}/config")
+async def device_config(device_id: str, v: int | None = None, full: bool = False):
+    """Lo descarga el ESP32 (solo lo activo). Con ?v=<versión que ya tiene> responde corto si no cambió.
+    El panel admin pide ?full=1 para ver también lo desactivado y los indicadores."""
+    cfg = await load_config(app.state.pool, device_id)
+    if cfg is None:
+        raise HTTPException(404, "dispositivo desconocido")
+    if v is not None and v == cfg["version"] and not full:
+        return {"version": cfg["version"], "unchanged": True}
+    if not full:
+        cfg["sensors"] = [s for s in cfg["sensors"] if s["enabled"]]
+        cfg["actuators"] = [a for a in cfg["actuators"] if a["enabled"]]
+        cfg.pop("indicators", None)       # los indicadores los calcula el servidor
+    else:
+        cfg["warnings"] = pin_warnings(DeviceConfig.model_validate({k: cfg[k] for k in ("report_interval_s", "sensors", "actuators", "indicators")}))
+    return cfg
+
+
+@app.put("/admin/devices/{device_id}/config", dependencies=[Depends(require_api_key)])
+async def put_device_config(device_id: str, body: DeviceConfig):
+    """Reemplaza sensores, actuadores e indicadores. Sube la versión; el ESP32 la aplica en ~30 s sin reflashear."""
+    try:
+        version = await save_config(app.state.pool, device_id, body)
+    except KeyError:
+        raise HTTPException(404, "dispositivo desconocido")
+    app.state.twin_cache.clear()
+    await app.state.cache.delete_prefix(f"state:{device_id}")
+    schedule_state_publish(app, device_id)
+    return {"ok": True, "version": version, "warnings": pin_warnings(body)}
+
+
+class ActuatorCommand(BaseModel):
+    seconds: int = Field(ge=1, le=3600)
+
+
+@app.post("/devices/{device_id}/actuators/{key}/command", dependencies=[Depends(require_api_key)])
+async def actuator_command(device_id: str, key: str, body: ActuatorCommand):
+    """Enciende un actuador N segundos (topic simon/<id>/cmd/<key>). El firmware aplica además su tope de seguridad."""
+    cfg = await load_config(app.state.pool, device_id)
+    if cfg is None:
+        raise HTTPException(404, "dispositivo desconocido")
+    act = next((a for a in cfg["actuators"] if a["key"] == key and a["enabled"]), None)
+    if act is None:
+        raise HTTPException(404, "actuador desconocido o desactivado")
+    if body.seconds > act["max_seconds"]:
+        raise HTTPException(422, f"máximo {act['max_seconds']} s para {key}")
+    online = await app.state.pool.fetchval("SELECT online FROM devices WHERE device_id = $1", device_id)
+    if not online:
+        raise HTTPException(409, "el dispositivo está offline")
+    if app.state.mqtt is None:
+        raise HTTPException(503, "sin conexión con el broker MQTT")
+    cmd = {"cmd_id": str(uuid.uuid4()), "seconds": body.seconds, "ts": time.time()}
+    await app.state.mqtt.publish(f"simon/{device_id}/cmd/{key}", payload=json.dumps(cmd), qos=1)
+    return cmd
+
+
+# ------------------------------------------------------------------ cuadernos de modelos --------
+
+class Cell(BaseModel):
+    type: str = Field(default="code", pattern="^(code|text)$")
+    source: str = Field(default="", max_length=200_000)
+
+
+class NotebookBody(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    device_id: str | None = Field(default=None, max_length=40)
+    cells: list[Cell] = Field(default_factory=list, max_length=200)
+
+
+class RunBody(BaseModel):
+    code: str = Field(max_length=200_000)
+    timeout_s: float = Field(default=60, ge=1, le=300)
+
+
+def _nb_id(nb_id: str) -> str:
+    if not nbk.ID_RE.match(nb_id):
+        raise HTTPException(422, "id de cuaderno inválido (minúsculas, números, - y _)")
+    return nb_id
+
+
+async def _nb_or_404(nb_id: str):
+    row = await app.state.pool.fetchrow("SELECT * FROM notebooks WHERE id=$1", _nb_id(nb_id))
+    if not row:
+        raise HTTPException(404, "cuaderno desconocido")
+    return row
+
+
+def _nb_out(row) -> dict:
+    cells = row["cells"]
+    if isinstance(cells, str):
+        cells = json.loads(cells)
+    return {"id": row["id"], "name": row["name"], "device_id": row["device_id"], "cells": cells,
+            "updated_at": row["updated_at"].isoformat(), "live": bool(row["live"])}
+
+
+@app.get("/admin/notebook-templates", dependencies=[Depends(require_api_key)])
+async def notebook_templates():
+    return [{"id": k, "name": v["name"], "cells": v["cells"]} for k, v in nbk.TEMPLATES.items()]
+
+
+@app.get("/admin/notebooks", dependencies=[Depends(require_api_key)])
+async def list_notebooks():
+    rows = await app.state.pool.fetch("SELECT id, name, device_id, updated_at, live FROM notebooks ORDER BY updated_at DESC")
+    return [{"id": r["id"], "name": r["name"], "device_id": r["device_id"], "updated_at": r["updated_at"].isoformat(), "live": r["live"]} for r in rows]
+
+
+@app.get("/admin/notebooks/{nb_id}", dependencies=[Depends(require_api_key)])
+async def get_notebook(nb_id: str):
+    return _nb_out(await _nb_or_404(nb_id))
+
+
+@app.put("/admin/notebooks/{nb_id}", dependencies=[Depends(require_api_key)])
+async def put_notebook(nb_id: str, body: NotebookBody):
+    row = await app.state.pool.fetchrow(
+        """INSERT INTO notebooks (id, name, device_id, cells, updated_at) VALUES ($1,$2,$3,$4::jsonb, now())
+           ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, device_id=EXCLUDED.device_id, cells=EXCLUDED.cells, updated_at=now()
+           RETURNING *""",
+        _nb_id(nb_id), body.name, body.device_id, json.dumps([c.model_dump() for c in body.cells]))
+    return _nb_out(row)
+
+
+@app.delete("/admin/notebooks/{nb_id}", dependencies=[Depends(require_api_key)])
+async def delete_notebook(nb_id: str):
+    await app.state.pool.execute("DELETE FROM notebooks WHERE id=$1", _nb_id(nb_id))
+    await app.state.kernels.drop(nb_id)
+    return {"ok": True}
+
+
+async def _kernel_for(nb_id: str, device_id: str | None, restart: bool = False):
+    k = app.state.kernels.get(nb_id)
+    if restart or not k.alive:
+        rows = await nbk.telemetry_rows(app.state.pool, device_id)
+        try:
+            await k.start(rows, device_id)
+        except nbk.KernelError as e:
+            raise HTTPException(503, str(e))
+    return k
+
+
+@app.post("/admin/notebooks/{nb_id}/run", dependencies=[Depends(require_api_key)])
+async def run_cell(nb_id: str, body: RunBody):
+    """Ejecuta una celda en el kernel del cuaderno (las variables persisten entre celdas)."""
+    row = await _nb_or_404(nb_id)
+    k = await _kernel_for(nb_id, row["device_id"])
+    async with k.lock:
+        try:
+            res = await k.call({"op": "run", "code": body.code}, body.timeout_s)
+        except nbk.KernelError as e:
+            return {"ok": False, "stdout": "", "result": None, "error": str(e), "metrics": [], "alerts": [],
+                    "figures": [], "has_predict": False, "ms": 0, "restarted": True}
+    return res
+
+
+@app.post("/admin/notebooks/{nb_id}/restart", dependencies=[Depends(require_api_key)])
+async def restart_kernel(nb_id: str):
+    """Reinicia el kernel (borra las variables y recarga las lecturas más recientes)."""
+    row = await _nb_or_404(nb_id)
+    k = await _kernel_for(nb_id, row["device_id"], restart=True)
+    return {"ok": True, "alive": k.alive}
+
+
+class DeployBody(BaseModel):
+    live: bool
+
+
+@app.post("/admin/notebooks/{nb_id}/deploy", dependencies=[Depends(require_api_key)])
+async def deploy_notebook(nb_id: str, body: DeployBody):
+    """Activa/desactiva el predict() del cuaderno sobre los datos en vivo de su dispositivo."""
+    row = await _nb_or_404(nb_id)
+    if body.live:
+        if not row["device_id"]:
+            raise HTTPException(422, "el cuaderno no tiene dispositivo asignado")
+        k = app.state.kernels.get(nb_id)
+        if not k.alive:
+            raise HTTPException(409, "Ejecuta primero las celdas del cuaderno (el kernel debe tener predict() registrado).")
+    await app.state.pool.execute("UPDATE notebooks SET live=$2 WHERE id=$1", nb_id, body.live)
+    return {"ok": True, "live": body.live}
+
+
+@app.post("/admin/notebooks/{nb_id}/predict", dependencies=[Depends(require_api_key)])
+async def predict_with_notebook(nb_id: str, body: dict | None = None):
+    """Llama a predict(row) del cuaderno con la última lectura real (o con la fila enviada)."""
+    row = await _nb_or_404(nb_id)
+    k = app.state.kernels.get(nb_id)
+    if not k.alive:
+        raise HTTPException(409, "El kernel no está activo: ejecuta primero las celdas del cuaderno.")
+    r = (body or {}).get("row")
+    if not r:
+        rows = await nbk.telemetry_rows(app.state.pool, row["device_id"], 1)
+        r = rows[-1] if rows else {}
+    async with k.lock:
+        try:
+            res = await k.call({"op": "predict", "row": r}, 30)
+        except nbk.KernelError as e:
+            raise HTTPException(503, str(e))
+    res["input"] = r
+    return res
+
+
+# ------------------------------------------------------------------ recomendador y optimizador --
+
+class OptimizeBody(BaseModel):
+    simulation: SimulateRequest = Field(default_factory=lambda: SimulateRequest(hours=24 * 90, step_minutes=180))
+
+
+async def _snap_ctx(device_id: str, overrides=None):
+    try:
+        snap = await take_snapshot(app, device_id)
+        ov = overrides or SimOverrides()
+        if ov.vwc_pct is None and snap.readings.get("vwc_pct") is None:
+            ov = ov.model_copy(update={"vwc_pct": 60.0})
+        return sim_context(snap, ov)
+    except TwinError as e:
+        raise HTTPException(404 if str(e) == "dispositivo desconocido" else 422, str(e))
+
+
+@app.get("/devices/{device_id}/recommend")
+async def recommend_crops(device_id: str, drainage: str | None = None):
+    """Qué cultivo rinde mejor con las condiciones reales de este dispositivo (simulación de ciclo completo por cultivo)."""
+    from .assess import recommend
+
+    async def produce():
+        ctx = await _snap_ctx(device_id)
+        ranking = await asyncio.to_thread(recommend, ctx, soil_drainage=drainage)
+        return {"device_id": device_id, "basis": "clima de las últimas 48 h repetido a lo largo del ciclo", "ranking": ranking,
+                "disclaimer": "Comparación relativa con parámetros de literatura general; no es una promesa de cosecha."}
+    return await app.state.cache.cached(f"recommend:{device_id}:{drainage}", 120, produce)
+
+
+@app.get("/devices/{device_id}/identify")
+async def identify_crops(device_id: str):
+    """Qué cultivos toleran mejor lo que realmente ha vivido este dispositivo (últimos 14 días de lecturas)."""
+    from .assess import history_rows, identify
+    from .cropmodel import Chem
+
+    async def produce():
+        snap = await take_snapshot(app, device_id)
+        rows = await history_rows(app.state.pool, device_id)
+        r = snap.readings
+        chem = Chem(ph=r.get("ph"), ec=r.get("ec"), n=r.get("n"), p=r.get("p"), k=r.get("k"), soil_t=r.get("soil_t"))
+        ranking = await asyncio.to_thread(identify, rows, snap.soil, chem, snap.dev["soil_depth_cm"], snap.profile.id)
+        cur = next((x for x in ranking if x["current"]), None)
+        best = ranking[0] if ranking else None
+        note = None
+        if cur and best and best["crop"] != cur["crop"] and best["score"] - cur["score"] >= 15:
+            note = f"Con lo vivido estos días, {best['name']} ({best['score']:.0f}) habría sufrido bastante menos que {cur['name']} ({cur['score']:.0f})."
+        return {"device_id": device_id, "window_h": len(rows), "ranking": ranking, "note": note,
+                "disclaimer": "Afinidad de las condiciones observadas con cada cultivo; no detecta la especie plantada."}
+    return await app.state.cache.cached(f"identify:{device_id}", 60, produce)
+
+
+@app.post("/devices/{device_id}/optimize")
+async def optimize(device_id: str, body: OptimizeBody):
+    """Busca la mejor estrategia de riego (cuándo y cuánto) para el escenario dado."""
+    from .assess import optimize_irrigation
+    ctx = await _snap_ctx(device_id, body.simulation.overrides)
+    sim = body.simulation.model_copy(deep=True)
+    sim.events = [e for e in sim.events if e.type != "irrigation"]     # la estrategia de riego la decide el optimizador
+    return await asyncio.to_thread(optimize_irrigation, ctx, sim)

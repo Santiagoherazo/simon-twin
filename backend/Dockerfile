@@ -5,6 +5,11 @@ WORKDIR /srv
 
 COPY requirements.txt .
 RUN pip install -r requirements.txt
+# Librerías de ciencia de datos para los cuadernos del panel admin (numpy, pandas, scikit-learn, matplotlib).
+# Para una imagen más liviana: docker build --build-arg WITH_ML=0 .
+ARG WITH_ML=1
+COPY requirements-ml.txt .
+RUN if [ "$WITH_ML" = "1" ]; then pip install -r requirements-ml.txt; fi
 
 COPY app ./app
 

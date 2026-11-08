@@ -37,3 +37,23 @@ Si MQTT lleva más de 45 s caído pero hay WiFi, las lecturas pendientes (flash 
 la tabla `simon_inbox` de Supabase; el backend las valida y las trae. Se confirman (se quitan de la cola) solo si Supabase respondió
 200/201/204. Rellena `SUPABASE_URL`, `SUPABASE_ANON_KEY` e `INGEST_KEY`; vacío = desactivado. Ver `docs/respaldo-supabase.md`.
 **Sin probar en hardware** (la lógica de cola peek/ack sí se probó en C++ de escritorio, incluyendo un envío fallido y el paso flash→RAM).
+
+
+## Firmware 2.0: sensores y actuadores configurables desde el panel
+Ya no hay sensores fijos en el sketch: la lista (con pines, escalas y reglas de los actuadores) se descarga del backend. Ver
+`docs/panel-admin.md`. Para usar DHT o DS18B20, descomenta `USE_DHT` / `USE_DS18B20` e instala la librería.
+La página local (`http://<ip>/`) y `/api/state`, `/api/history`, `/api/act?key=<actuador>&s=<seg>` se adaptan solos a la configuración.
+**Probado**: la lógica de configuración, lectura, reglas y cola en C++ de escritorio con ArduinoJson real, y el sketch completo pasa
+una comprobación de sintaxis/tipos contra simulaciones de las librerías. **Sin probar**: compilación con el core real de Arduino y hardware.
+
+## Hardware confirmado (cargar desde el panel admin → Sensores → «Cargar hardware confirmado»)
+| Pieza | Pin ESP32 | Notas |
+|---|---|---|
+| DHT11 (temp./humedad aire) | GPIO 4 | `param` 11; resistencia pull-up 10 kΩ si el módulo no la trae |
+| Humedad de suelo capacitiva | GPIO 36 (ADC1) | clave `vwc_raw`; calibra seco/mojo en el panel |
+| DS18B20 (temp. suelo) | GPIO 18 | pull-up 4,7 kΩ entre datos y 3V3 |
+| 4 fotorresistencias (LDR) | GPIO 32, 33, 34, 35 (ADC1) | Cada una en divisor: 3V3 → LDR → pin → 10 kΩ → GND (más luz = más voltaje). Esquinas: 32 NO, 33 NE, 34 SO, 35 SE |
+| Bomba de riego (relé) | GPIO 26 | máx. 120 s por activación |
+| Relé 2 (por definir) | GPIO 27 | máx. 300 s; renómbralo cuando decidas qué controla |
+Las 4 LDR llegan como `ldr_nw/ne/sw/se` en %. Si no hay `lux`, el servidor lo estima como media × 400 (100 % ≈ 40 000 lx; **sin calibrar**, ajusta `LUX_PER_PCT` en `ingest.py` con un luxómetro). Indicadores: `luz_media` y `luz_desbalance` (diferencia máx.–mín. entre esquinas; > 35 % = sombra desigual).
+Usa solo pines ADC1 para analógicos: el ADC2 deja de funcionar cuando el WiFi está activo.

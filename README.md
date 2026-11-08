@@ -101,9 +101,14 @@ Si el celular no aguanta la escena, el botón **Sin 3D** (en la barra móvil) la
 ## Caché Redis y respaldo en Supabase
 Ver [docs/respaldo-supabase.md](docs/respaldo-supabase.md). Pruebas de integración: `TEST_PG_LOCAL`, `TEST_PG_REMOTE`, `TEST_REDIS` (se omiten si faltan).
 
+## Panel administrativo
+Ver [docs/panel-admin.md](docs/panel-admin.md): `#/admin` para editar sensores, actuadores e indicadores; el ESP32 se reconfigura solo.
+
 ## Modo local (sin nube)
 La app vigila `API_URL/health`; tras ~15 s de fallos pasa a **modo local**:
 - **APK / página `http`**: lee `http://<ip-del-esp32>/api/state` cada 3 s y el riego manual va directo al ESP32. Vuelve a la nube sola (2 sondeos buenos).
 - **Web `https`**: el navegador bloquea `http://192.168.x.x`, así que tras 8 s redirige a la página del propio ESP32 (`/#auto`), que vuelve sola a la nube cuando `/health` responde. Se puede cancelar.
 - La IP del ESP32 se aprende por MQTT (`simon/<id>/info`) o `/devices`; también `?esp=192.168.1.20` o el campo manual. Solo se aceptan IPs privadas o `*.local`.
 - Con el celular en datos móviles no hay forma de llegar al ESP32.
+
+Modelo del ciclo de cultivo: [docs/modelo-cultivo.md](docs/modelo-cultivo.md).

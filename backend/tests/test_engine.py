@@ -1,4 +1,3 @@
-import math
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -10,8 +9,8 @@ from app.kpis import vpd_kpa, vwc_pct
 from app.schemas import SimEvent, SimulateRequest, SimWeather, SimAutoIrrigation, Telemetry
 from app.simulate import SimContext, seconds_to_mm, simulate, synthetic_env
 from app.soils import get_soil
-from app.suitability import build_alerts, evaluate, range_score
-from app.waterbalance import et0_mm_h, fit_et_scale, soil_water, step, theta_from_pct
+from app.suitability import build_alerts, evaluate
+from app.waterbalance import et0_mm_h, fit_et_scale, soil_water, step
 
 
 def test_vpd_known_value():
@@ -253,3 +252,29 @@ def test_parse_info_solo_red_local():
     assert parse_info(b'{"host":"evil.com"}') is None
     assert parse_info(b'no es json') is None
     assert parse_info(b'{"ip":"8.8.8.8","host":"a.local"}')["ip"] is None
+
+
+def test_parse_telemetry_indulgente():
+    from app.ingest import parse_telemetry
+    t = parse_telemetry({"vwc_raw": 2200.38, "air_t": 24.5})
+    assert t.vwc_raw == 2200 and t.air_t == 24.5                       # decimales del ADC: se redondea
+    t = parse_telemetry({"vwc_raw": 2200, "ph": 15.2, "air_t": 24.5})  # pH fuera de rango: solo se descarta ese campo
+    assert t.ph is None and t.vwc_raw == 2200 and t.air_t == 24.5
+    t = parse_telemetry({"air_t": "texto", "air_rh": 50, "co2": 800})
+    assert t.air_t is None and t.air_rh == 50 and t.model_extra["co2"] == 800
+    import pytest
+    with pytest.raises(ValueError):
+        parse_telemetry([1, 2, 3])
+
+    with pytest.raises(ValueError):                                   # sin ningún dato útil tras limpiar
+        parse_telemetry({"v": 1, "ts": 1.0, "vwc_raw": "x"})
+
+
+def test_hardware_confirmado_valido_y_lux_desde_ldr():
+    from app.devcfg import config_hardware_confirmado, pin_warnings
+    from app.ingest import derive_lux
+    cfg = config_hardware_confirmado()
+    assert pin_warnings(cfg) == []
+    assert derive_lux(None, {"ldr_nw": 50.0, "ldr_ne": 100.0, "otro": 5}) == 30000.0
+    assert derive_lux(1234.0, {"ldr_nw": 50.0}) == 1234.0
+    assert derive_lux(None, {"co2": 800}) is None

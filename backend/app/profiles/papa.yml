@@ -1,0 +1,36 @@
+# Perfil de cultivo: PAPA (Solanum tuberosum)
+# Valores indicativos para un prototipo; validar con fuentes agronómicas locales (AGROSAVIA, ICA, UNAL).
+# Fuentes y supuestos en docs/modelo-cultivo.md
+id: papa
+name: Papa
+scientific: Solanum tuberosum
+note: Valores indicativos para un prototipo; validar con fuentes agronómicas locales (AGROSAVIA, ICA, UNAL).
+category: tuber
+gdd: {base_c: 7, cap_c: 28, maturity: 1400}
+water: {p_depletion: 0.35}
+optimal:
+  air_t: [12, 22]
+  soil_t: [10, 20]
+  ph: [5.2, 6.4]
+  ec: [200, 1200]
+  n: [40, 140]
+  p: [25, 80]
+  k: [150, 400]
+  vpd_kpa: [0.4, 1.1]
+  light: [20000, 60000]
+weights: {soil_moisture: 3.0, air_t: 1.5, soil_t: 1.0, ph: 1.0, ec: 0.5, n: 1.0, p: 1.0, k: 1.0, vpd_kpa: 1.0, light: 0.5}
+stages:
+- {code: ES, name: Brotación y emergencia, gdd_start: 0, kc: 0.5, root_depth_cm: 15}
+- {code: VG, name: Follaje, gdd_start: 250, kc: 0.8, root_depth_cm: 30}
+- {code: TU, name: Tuberización, gdd_start: 550, kc: 1.15, root_depth_cm: 45}
+- {code: LL, name: Llenado de tubérculos, gdd_start: 900, kc: 1.1, root_depth_cm: 55}
+- {code: MD, name: Maduración, gdd_start: 1250, kc: 0.75, root_depth_cm: 55}
+plant_visual: {max_height_cm: 80, height_full_gdd: 700, max_leaves: 20, leaves_full_gdd: 700, max_lai: 3.5, fruit_from_stage: TU}
+repro_stages: [TU, LL]
+yield_potential_kg_m2: 4.0
+stress: {heat_c: 26, heat_crit_c: 35, repro_heat_c: 29, repro_night_c: 21, susc_blight: 1.6, ec_threshold_ds: 1.7,
+  ec_slope_pct: 12, repro_drought: 0.03}
+sources: ['FAO-56 (Allen et al., 1998): Kc, p de agotamiento y duración de etapas (valores de tabla; GDD derivados
+    de la duración × temperatura media típica)', 'FAO-29 / Maas-Hoffman: umbral y pendiente de salinidad', 'Tizón
+    tardío (Phytophthora infestans): reglas tipo Hutton, ≥2 días con ≥11 h de HR>90 % y mínima >10 °C (universidades
+    extensionistas)']

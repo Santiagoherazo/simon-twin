@@ -1,0 +1,37 @@
+# Perfil de cultivo: PIMENTÓN (Capsicum annuum)
+# Valores indicativos para un prototipo; validar con fuentes agronómicas locales (AGROSAVIA, ICA, UNAL).
+# Fuentes y supuestos en docs/modelo-cultivo.md
+id: pimenton
+name: Pimentón
+scientific: Capsicum annuum
+note: Valores indicativos para un prototipo; validar con fuentes agronómicas locales (AGROSAVIA, ICA, UNAL).
+category: fruit
+gdd: {base_c: 10, cap_c: 32, maturity: 1500}
+water: {p_depletion: 0.3}
+optimal:
+  air_t: [18, 30]
+  soil_t: [16, 28]
+  ph: [5.8, 6.8]
+  ec: [300, 1800]
+  n: [40, 140]
+  p: [20, 70]
+  k: [150, 380]
+  vpd_kpa: [0.6, 1.3]
+  light: [25000, 65535]
+weights: {soil_moisture: 3.0, air_t: 1.5, soil_t: 1.0, ph: 1.0, ec: 0.5, n: 1.0, p: 1.0, k: 1.0, vpd_kpa: 1.0, light: 0.5}
+stages:
+- {code: ES, name: Establecimiento, gdd_start: 0, kc: 0.6, root_depth_cm: 20}
+- {code: VG, name: Vegetativo, gdd_start: 200, kc: 0.8, root_depth_cm: 40}
+- {code: FL, name: Floración, gdd_start: 600, kc: 1.0, root_depth_cm: 60}
+- {code: FR, name: Cuajado y llenado, gdd_start: 850, kc: 1.05, root_depth_cm: 70}
+- {code: MD, name: Maduración, gdd_start: 1250, kc: 0.9, root_depth_cm: 70}
+plant_visual: {max_height_cm: 90, height_full_gdd: 800, max_leaves: 20, leaves_full_gdd: 800, max_lai: 3.0, tassel_from_stage: FL,
+  fruit_from_stage: FR}
+repro_stages: [FL, FR]
+yield_potential_kg_m2: 5.0
+stress: {repro_heat_c: 32, repro_night_c: 24, repro_cold_c: 15.5, cold_c: 10, chill_c: 7, dli_min: 20, ec_threshold_ds: 1.5,
+  ec_slope_pct: 14, susc_blight: 0.8, hypoxia_onset_h: 40}
+sources: ['FAO-56 (Allen et al., 1998): Kc, p de agotamiento y duración de etapas (valores de tabla; GDD derivados
+    de la duración × temperatura media típica)', 'FAO-29 / Maas-Hoffman: umbral y pendiente de salinidad', 'OMAFRA
+    Ontario: polen estéril y caída de flor con día >32 °C; mal cuajado con noche <15.5 o >24 °C', 'Univ. Illinois/VegCrops
+    Hotline: Phytophthora capsici favorecida por encharcamiento']

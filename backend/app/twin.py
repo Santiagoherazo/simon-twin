@@ -19,6 +19,8 @@ from .growth import accumulate_gdd, plant_visual
 from .schemas import SimOverrides, SimulateRequest
 from .simulate import HourlyEnv, SimContext, seconds_to_mm, simulate, synthetic_env
 from .soils import Soil, get_soil
+from .assess import alerts_from_assessment, history_rows, replay
+from .cropmodel import FACTOR_NAMES, Chem
 from .suitability import build_alerts, evaluate
 from .waterbalance import fit_et_scale, soil_water, theta_from_pct
 
@@ -208,6 +210,8 @@ def sim_context(snap: Snapshot, overrides: SimOverrides | None = None, *, start_
         soil_depth_cm=o.soil_depth_cm or snap.dev["soil_depth_cm"],
         pot_area_cm2=snap.dev["pot_area_cm2"], pump_flow_ml_min=snap.dev["pump_flow_ml_min"],
         env=snap.env, et_scale=snap.et_scale, altitude_m=settings.altitude_m,
+        chem=Chem(ph=snap.readings.get("ph"), ec=snap.readings.get("ec"), n=snap.readings.get("n"),
+                  p=snap.readings.get("p"), k=snap.readings.get("k"), soil_t=snap.readings.get("soil_t")),
     )
 
 
@@ -215,6 +219,48 @@ def sim_context(snap: Snapshot, overrides: SimOverrides | None = None, *, start_
 
 def _round(v, nd=2):
     return None if v is None else round(float(v), nd)
+
+
+def _status(v, lo, hi):
+    if v is None or isinstance(v, bool):
+        return None
+    if lo is not None and v < lo:
+        return "low"
+    if hi is not None and v > hi:
+        return "high"
+    return "ok" if (lo is not None or hi is not None) else None
+
+
+async def config_block(pool, device_id: str, readings: dict) -> dict:
+    """Variables personalizadas, indicadores y actuadores definidos en el panel admin, con su valor más reciente."""
+    from .devcfg import COLUMN_KEYS, load_config
+
+    cfg = await load_config(pool, device_id)
+    if cfg is None:
+        return {}
+    row = await pool.fetchrow(
+        "SELECT extra, pump_on FROM telemetry WHERE device_id = $1 AND extra IS NOT NULL ORDER BY ts DESC LIMIT 1", device_id)
+    extra = {}
+    if row and row["extra"]:
+        extra = json.loads(row["extra"]) if isinstance(row["extra"], str) else dict(row["extra"])
+    custom = []
+    for s in cfg["sensors"]:
+        if s["enabled"] and s["key"] not in COLUMN_KEYS:
+            v = extra.get(s["key"])
+            custom.append({"key": s["key"], "label": s["label"], "unit": s["unit"], "kind": "sensor", "value": v,
+                           "min_ok": s["min_ok"], "max_ok": s["max_ok"], "status": _status(v, s["min_ok"], s["max_ok"])})
+    for i in cfg["indicators"]:
+        if i["enabled"]:
+            v = extra.get(i["key"])
+            custom.append({"key": i["key"], "label": i["label"], "unit": i["unit"], "kind": "indicator", "value": v,
+                           "min_ok": i["min_ok"], "max_ok": i["max_ok"], "status": _status(v, i["min_ok"], i["max_ok"])})
+    acts = []
+    for a in cfg["actuators"]:
+        if a["enabled"]:
+            on = readings.get("pump_on") if a["key"] == "pump" else extra.get(f"{a['key']}_on")
+            acts.append({"key": a["key"], "label": a["label"], "on": bool(on) if on is not None else None,
+                         "max_seconds": a["max_seconds"]})
+    return {"custom": custom, "actuators": acts, "config_version": cfg["version"]}
 
 
 async def compute_state(app, device_id: str) -> dict:
@@ -255,6 +301,18 @@ async def compute_state(app, device_id: str) -> dict:
     wilt = 0.0 if sw is None else 1.0 - sw.ks
     health = None if suit["overall"] is None else suit["overall"] / 100.0
 
+    # Daño acumulado real: se reproducen las últimas 2 semanas de lecturas por el motor de ciclo de cultivo
+    assessment = None
+    try:
+        rows = await history_rows(app.state.pool, device_id)
+        chem = Chem(ph=readings.get("ph"), ec=readings.get("ec"), n=readings.get("n"), p=readings.get("p"),
+                    k=readings.get("k"), soil_t=readings.get("soil_t"))
+        assessment = replay(profile, soil, rows, chem, gdd_now=snap.gdd, root_cm=dev["soil_depth_cm"])
+    except Exception:  # el estado básico no debe caerse por el modelo
+        import logging
+        logging.getLogger("simon.assess").exception("assess falló")
+    alerts = alerts_from_assessment(assessment) + alerts
+
     prediction = None
     if sw is not None:
         ctx = sim_context(snap, start_ts=now)
@@ -287,9 +345,60 @@ async def compute_state(app, device_id: str) -> dict:
         suitability=suit,
         alerts=alerts,
         prediction=prediction,
-        plant=plant_visual(profile, snap.gdd, wilt, health),
+        plant={**plant_visual(profile, snap.gdd, wilt, health), **(assessment["visual"] if assessment else {})},
+        health=None if assessment is None else {
+            "summary": assessment["summary"], "factors": assessment["factors"], "events": assessment["events"],
+            "window_h": assessment["window_h"], "factor_names": FACTOR_NAMES,
+        },
     )
+    state.update(await config_block(app.state.pool, device_id, readings))
+    await apply_live_models(app, device_id, state)
     return state
+
+
+async def apply_live_models(app, device_id: str, state: dict) -> None:
+    """Corre el predict() de los cuadernos activados: sus alertas se suman y sus 'overrides' ajustan lecturas."""
+    import logging
+    try:
+        rows = await app.state.pool.fetch("SELECT id, name FROM notebooks WHERE live AND device_id=$1", device_id)
+    except Exception:
+        return
+    models, extra_alerts = [], []
+    for r in rows:
+        k = app.state.kernels.get(r["id"])
+        if not k.alive:
+            models.append({"id": r["id"], "name": r["name"], "ok": False, "error": "kernel detenido: vuelve a ejecutar el cuaderno"})
+            continue
+        try:
+            async with k.lock:
+                res = await k.call({"op": "predict", "row": dict(state.get("readings") or {})}, 5)
+        except Exception as e:  # incluye KernelError por tiempo agotado
+            logging.getLogger("simon.models").warning("modelo %s falló: %s", r["id"], e)
+            models.append({"id": r["id"], "name": r["name"], "ok": False, "error": str(e)})
+            continue
+        entry = {"id": r["id"], "name": r["name"], "ok": res.get("ok", False)}
+        if not entry["ok"]:
+            entry["error"] = res.get("error", "")[-300:]
+            models.append(entry)
+            continue
+        out = res.get("output")
+        entry["output"] = out
+        ov = out.get("overrides") if isinstance(out, dict) else None
+        if isinstance(ov, dict):
+            applied = {}
+            for key, val in ov.items():
+                if isinstance(val, (int, float)) and not isinstance(val, bool) and key in (state.get("readings") or {}):
+                    applied[key] = {"was": state["readings"][key], "now": _round(float(val), 3)}
+                    state["readings"][key] = _round(float(val), 3)
+            entry["overrides"] = applied
+        for a in res.get("alerts", []):
+            extra_alerts.append({"code": f"model_{r['id']}", "level": a["level"],
+                                 "message": f"[{r['name']}] {a['message']}", "variable": a.get("variable")})
+        models.append(entry)
+    if models:
+        state["models"] = models
+    if extra_alerts:
+        state["alerts"] = extra_alerts + state.get("alerts", [])
 
 
 # ------------------------------------------------------------------ publicación -----------

@@ -16,6 +16,9 @@ import { ArRoot } from './ArLayer'
 import { FOCUS_TARGET } from './layout'
 import { setFocus, useFocus, useXr } from '../xr'
 import { WaterSystem } from './WaterSystem'
+import { Climate } from './Climate'
+import { LdrMatrix } from './LdrMatrix'
+import { ActuatorBank, SensorBoard } from './Devices'
 
 /** Con postprocesado el tono lo aplica la cadena; en calidad baja lo aplica el renderer. */
 function ToneSwitch({ quality, force }: { quality: Quality; force: boolean }) {
@@ -233,6 +236,10 @@ export function Scene({ narrow, quality, onQualityDrop, onTooSlow, shiftPx = 0 }
             <Pickable id="tank">
               <WaterSystem />
             </Pickable>
+            <Climate />
+            <LdrMatrix />
+            {!xr.active && <SensorBoard />}
+            {!xr.active && <ActuatorBank />}
             {!xr.active && <Dust />}
             <Rain />
             <AlertMarkers />

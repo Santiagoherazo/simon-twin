@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError, getCrops, getDevices, getSoils, simulate } from './api'
+import { AdminPanel } from './components/AdminPanel'
 import { Header, type Mode } from './components/Header'
 import { LivePanel } from './components/LivePanel'
 import { MobileShell } from './components/MobileShell'
@@ -27,7 +28,7 @@ function useNarrow() {
   return n
 }
 
-export default function App() {
+function Twin() {
   const narrow = useNarrow()
   const [winW, setWinW] = useState(() => window.innerWidth)
   useEffect(() => {
@@ -173,6 +174,7 @@ export default function App() {
 
   const simProps = {
     deviceId,
+    deviceCropId: live.state?.crop?.id ?? null,
     crops,
     soils,
     sim,
@@ -248,4 +250,17 @@ export default function App() {
       )}
     </div>
   )
+}
+
+const isAdminHash = () => location.hash.startsWith('#/admin')
+
+/** Ruta mínima: #/admin abre el panel administrativo; el resto es el gemelo. */
+export default function App() {
+  const [admin, setAdmin] = useState(isAdminHash)
+  useEffect(() => {
+    const f = () => setAdmin(isAdminHash())
+    window.addEventListener('hashchange', f)
+    return () => window.removeEventListener('hashchange', f)
+  }, [])
+  return admin ? <AdminPanel /> : <Twin />
 }

@@ -1,0 +1,45 @@
+# Perfil de cultivo: ESPINACA (Spinacia oleracea)
+# Valores indicativos para un prototipo; validar con fuentes agronómicas locales (AGROSAVIA, ICA, UNAL).
+# Fuentes y supuestos en docs/modelo-cultivo.md
+id: espinaca
+name: Espinaca
+scientific: Spinacia oleracea
+note: Valores indicativos para un prototipo; validar con fuentes agronómicas locales (AGROSAVIA, ICA, UNAL).
+category: leaf
+gdd: {base_c: 4, cap_c: 24, maturity: 500}
+water: {p_depletion: 0.2}
+optimal:
+  air_t: [10, 20]
+  soil_t: [8, 18]
+  ph: [6.2, 7.2]
+  ec: [300, 1500]
+  n: [50, 140]
+  p: [20, 60]
+  k: [100, 300]
+  vpd_kpa: [0.4, 1.0]
+  light: [12000, 45000]
+weights: {soil_moisture: 3.0, air_t: 1.5, soil_t: 1.0, ph: 1.0, ec: 0.5, n: 1.0, p: 1.0, k: 1.0, vpd_kpa: 1.0, light: 0.5}
+stages:
+- {code: ES, name: Establecimiento, gdd_start: 0, kc: 0.7, root_depth_cm: 10}
+- {code: VG, name: Roseta, gdd_start: 80, kc: 0.85, root_depth_cm: 15}
+- {code: CR, name: Crecimiento rápido, gdd_start: 230, kc: 1.0, root_depth_cm: 20}
+- {code: MD, name: Cosecha, gdd_start: 400, kc: 0.95, root_depth_cm: 20}
+plant_visual: {max_height_cm: 25, height_full_gdd: 350, max_leaves: 20, leaves_full_gdd: 350, max_lai: 3.0}
+repro_stages: []
+yield_potential_kg_m2: 1.5
+stress:
+  temp_opt: [10, 20]
+  heat_c: 24
+  heat_crit_c: 32
+  cold_c: 0
+  chill_c: -2
+  frost_c: -6
+  bolt_c: 24
+  long_day_h: 14
+  dli_min: 10
+  ec_threshold_ds: 2.0
+  ec_slope_pct: 7.6
+  susc_botrytis: 1.2
+sources: ['FAO-56 (Allen et al., 1998): Kc, p de agotamiento y duración de etapas (valores de tabla; GDD derivados
+    de la duración × temperatura media típica)', 'FAO-29 / Maas-Hoffman: umbral y pendiente de salinidad', Hortaliza
+    resistente al frío (tolera heladas fuertes); espiga con calor y días largos (extensión universitaria)]

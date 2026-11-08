@@ -4,6 +4,7 @@ recibe un contexto y una solicitud, y devuelve la trayectoria."""
 import math
 from dataclasses import dataclass
 
+from .cropmodel import Chem, CropEngine, apply_overrides
 from .crops import CropProfile
 from .growth import gdd_step, plant_visual
 from .schemas import SimulateRequest
@@ -56,6 +57,14 @@ class SimContext:
     env: HourlyEnv
     et_scale: float = 1.0
     altitude_m: float = 0.0
+    chem: Chem = None  # type: ignore[assignment]   # química del sustrato (None → se asume sin datos)
+
+    def __post_init__(self):
+        if self.chem is None:
+            self.chem = Chem()
+
+
+DRAINAGE_MULT = {"bueno": 1.0, "regular": 3.0, "malo": 8.0, "sin_salida": 40.0}
 
 
 def seconds_to_mm(seconds: float, pump_flow_ml_min: float, pot_area_cm2: float) -> float:
@@ -80,7 +89,18 @@ def _modified_env(ctx: SimContext, req: SimulateRequest, t_s: float) -> tuple[fl
 
 
 def simulate(ctx: SimContext, req: SimulateRequest) -> dict:
-    soil, prof = ctx.soil, ctx.profile
+    soil = ctx.soil
+    prof = apply_overrides(ctx.profile, req.overrides.crop_params)
+    o = req.overrides
+    chem = Chem(
+        ph=o.ph if o.ph is not None else ctx.chem.ph, ec=o.ec if o.ec is not None else ctx.chem.ec,
+        n=o.n if o.n is not None else ctx.chem.n, p=o.p if o.p is not None else ctx.chem.p,
+        k=o.k if o.k is not None else ctx.chem.k, soil_t=ctx.chem.soil_t,
+    )
+    eng = CropEngine(prof, soil, chem, req.management.disease_control, req.management.pest_control)
+    drain_tau = soil.drain_tau_h * DRAINAGE_MULT.get(o.drainage or "bueno", 1.0)
+    fert_events = [(e.at_hour, e.n, e.p, e.k) for e in req.events if e.type == "fertilize"]
+    last_f: dict = {}
     dt_h = req.step_minutes / 60.0
     n_steps = int(math.ceil(req.hours / dt_h))
     theta = ctx.vwc_pct0 / 100.0 * soil.theta_sat
@@ -89,6 +109,8 @@ def simulate(ctx: SimContext, req: SimulateRequest) -> dict:
     # Eventos: lámina en mm (convertir segundos de bomba)
     events = []
     for e in req.events:
+        if e.type == "fertilize":
+            continue
         mm = e.mm
         if mm is None and e.seconds is not None and e.type == "irrigation":
             mm = seconds_to_mm(e.seconds, ctx.pump_flow_ml_min, ctx.pot_area_cm2)
@@ -127,7 +149,14 @@ def simulate(ctx: SimContext, req: SimulateRequest) -> dict:
             "irrigation_mm": round(irr_mm, 2),
             "rain_mm": round(rain_mm, 2),
             "needs_irrigation": sw.needs_irrigation,
-            "plant": plant_visual(prof, gdd_eff, 1.0 - sw.ks, None),
+            "plant": {**plant_visual(prof, gdd_eff, 1.0 - sw.ks, eng.health() if eng.steps else None), **eng.visual(last_f, gdd_th)},
+            "health": round(eng.health(), 3),
+            "vigor_pct": round(eng.vigor(gdd_th) * 100, 1),
+            "yield_pct": eng.yield_pct(gdd_th),
+            "root_pct": round((1 - eng.root_dmg) * 100, 1),
+            "hypoxia": round(min(eng.H, 2.0), 2),
+            "stress": {k: round(v, 3) for k, v in last_f.items() if not k.startswith("_")},
+            "vpd": round(last_f.get("_vpd", 0.0), 2),
         }, sw
 
     # estado inicial
@@ -152,7 +181,9 @@ def simulate(ctx: SimContext, req: SimulateRequest) -> dict:
         rain = sum(mm for at, kind, mm in events if kind == "rain" and t0 <= at < t1)
 
         sw_pre = soil_water(theta, soil, root, prof.p_depletion)
-        if req.auto_irrigation.enabled and sw_pre.needs_irrigation:
+        trig = req.auto_irrigation.trigger_aw_pct
+        due = sw_pre.needs_irrigation if trig is None else sw_pre.aw_pct <= trig
+        if req.auto_irrigation.enabled and due:
             irr += req.auto_irrigation.mm
             irrigations.append({"t_hour": round(t0, 2), "mm": req.auto_irrigation.mm, "auto": True})
         for at, kind, mm in events:
@@ -162,11 +193,19 @@ def simulate(ctx: SimContext, req: SimulateRequest) -> dict:
         et0 = et0_mm_h(air_t, rh, lux, ctx.altitude_m)
         theta, etc, ks = step(
             theta, dt_h, soil=soil, root_depth_cm=root, kc=stage.kc, p=prof.p_depletion,
-            et0_h=et0, irrigation_mm=irr, rain_mm=rain, et_scale=ctx.et_scale,
+            et0_h=et0, irrigation_mm=irr, rain_mm=rain, et_scale=ctx.et_scale * max(0.05, 1.0 - eng.root_dmg),
+            drain_tau_h=drain_tau,
         )
         dg = gdd_step(air_t, dt_h, prof.base_c, prof.cap_c)
         gdd_th += dg
-        gdd_eff += dg * ks
+        fert = None
+        fe = [(n_, p_, k_) for at, n_, p_, k_ in fert_events if t0 <= at < t1]
+        if fe:
+            fert = (sum(x[0] for x in fe), sum(x[1] for x in fe), sum(x[2] for x in fe))
+        res = eng.step(dt_h=dt_h, t_h=t1, ts=ctx.start_ts + t1 * 3600.0, air_t=air_t, rh=rh, lux=lux, theta=theta, ks=ks,
+                       gdd_th=gdd_th, gdd_eff=gdd_eff + dg, stage_idx=idx, irrigation_mm=irr, rain_mm=rain, fert=fert)
+        last_f = {**res["factors"], "_vpd": res["vpd"]}
+        gdd_eff += dg * res["dev"]
 
         total_irrig += irr
         total_rain += rain
@@ -191,6 +230,7 @@ def simulate(ctx: SimContext, req: SimulateRequest) -> dict:
             "crop": prof.id, "soil_type": soil.id, "hours": req.hours, "step_minutes": req.step_minutes,
             "vwc_pct0": ctx.vwc_pct0, "gdd0": round(ctx.gdd0, 1), "et_scale": round(ctx.et_scale, 3),
             "weather": req.weather.model_dump(), "auto_irrigation": req.auto_irrigation.model_dump(),
+            "crop_params": o.crop_params, "drainage": o.drainage or "bueno", "management": req.management.model_dump(),
         },
         "summary": {
             "first_irrigation_due_h": None if first_due is None else round(first_due, 2),
@@ -205,6 +245,8 @@ def simulate(ctx: SimContext, req: SimulateRequest) -> dict:
             if last["gdd"] > ctx.gdd0 else 1.0,
             "final_stage": last["stage"],
             "final_plant": last["plant"],
+            "crop_model": eng.summary(gdd_th),
         },
+        "events": eng.events,
         "series": series,
     }

@@ -86,7 +86,6 @@ def test_cache_redis_y_degradacion():
 
 def test_inbox_anon_validacion_dedupe_y_restore():
     import json
-    from datetime import datetime, timezone
     from types import SimpleNamespace
     import asyncpg
     from app import backup
@@ -132,7 +131,8 @@ def test_inbox_anon_validacion_dedupe_y_restore():
             await con.execute("RESET ROLE")
 
         res = await backup.pull_inbox(app, rem, 100)
-        assert res["read"] == 6 and res["stored"] == 3 and res["discarded"] == 3, res
+        # 6 filas: 4 llegan a process_telemetry (la de vwc_raw fuera de rango conserva el resto; es ts duplicado), 2 se descartan
+        assert res["read"] == 6 and res["stored"] == 4 and res["discarded"] == 2, res
         assert await loc.fetchval("SELECT count(*) FROM telemetry WHERE device_id='esp32-01'") == 2   # dedupe por (device_id, ts)
         assert await rem.fetchval("SELECT count(*) FROM simon_inbox") == 0                             # buzón vaciado
         # lo recibido por el buzón también se respalda en simon_telemetry
@@ -141,9 +141,15 @@ def test_inbox_anon_validacion_dedupe_y_restore():
         assert await rem.fetchval("SELECT count(*) FROM simon_telemetry") == 2
         # restore: se pierde la base local y se recupera desde Supabase
         await loc.execute("DELETE FROM telemetry")
+        # config de sensores: se respalda y se recupera si la base local la pierde
+        from app.devcfg import default_config_esp32, save_config
+        await save_config(loc, "esp32-01", default_config_esp32())
+        await backup.sync_devices(loc, rem)
+        assert await rem.fetchval("SELECT count(*) FROM simon_device_config") >= 1
+        await loc.execute("DELETE FROM device_sensors"); await loc.execute("DELETE FROM device_actuators"); await loc.execute("DELETE FROM device_indicators")
         out = await backup.restore(app, rem, 3)
+        assert out["configs"] == 2 and await loc.fetchval("SELECT count(*) FROM device_sensors WHERE device_id='esp32-01'") == 10
         assert out["telemetry_read"] == 2 and await loc.fetchval("SELECT count(*) FROM telemetry") == 2
-        out2 = await backup.restore(app, rem, 3)                                # idempotente
         assert await loc.fetchval("SELECT count(*) FROM telemetry") == 2
         await loc.close(); await rem.close()
     run(go())

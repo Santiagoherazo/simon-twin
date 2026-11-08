@@ -314,7 +314,7 @@ function GrowLamp() {
   useFrame((_, dt) => {
     const want = Math.max(6.2, SOIL_TOP + plantVisualHeight(sm.heightCm) + 1.9)
     lamp.y += (want - lamp.y) * Math.min(1, dt * 2.5)
-    lamp.on = 0.35 + 0.65 * (1 - sm.day)
+    lamp.on = sm.light >= 0 ? 0.08 + 0.92 * sm.light : 0.35 + 0.65 * (1 - sm.day)
     if (group.current) group.current.position.y = lamp.y
     if (pole.current) {
       const h = lamp.y - RIM_Y

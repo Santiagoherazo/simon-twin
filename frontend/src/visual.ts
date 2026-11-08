@@ -14,6 +14,36 @@ export interface VisualPlant {
   health: number // 0..1 (tono)
   hasTassel: boolean
   hasFruit: boolean
+  yellow: number // amarillamiento (nutrientes, falta de oxígeno, enfermedad)
+  scorch: number // quemadura por frío/calor/helada
+  rot: number // raíz podrida
+  stunt: number // enanismo frente al potencial
+  dead: boolean
+}
+
+export interface VisualSensor {
+  key: string
+  label: string
+  unit: string
+  value: number | boolean | null
+  status: 'low' | 'ok' | 'high' | null
+}
+export interface VisualActuator {
+  key: string
+  label: string
+  on: boolean
+  kind: 'fan' | 'light' | 'heater' | 'humidifier' | 'valve' | 'generic'
+}
+
+/** Clasifica un actuador por su clave o nombre para elegir su modelo 3D y su efecto en la escena. */
+export function actuatorKind(key: string, label: string): VisualActuator['kind'] {
+  const t = `${key} ${label}`.toLowerCase()
+  if (/ventil|fan|extractor|aire_?fors/.test(t)) return 'fan'
+  if (/luz|light|l[aá]mpara|lamp|led|grow|foco/.test(t)) return 'light'
+  if (/calef|heat|resist|hornill/.test(t)) return 'heater'
+  if (/humid|nebul|mist|fog|vapor/.test(t)) return 'humidifier'
+  if (/v[aá]lvula|valve|electrov|solenoid/.test(t)) return 'valve'
+  return 'generic'
 }
 
 export interface VisualState {
@@ -30,6 +60,12 @@ export interface VisualState {
   tankOk: boolean
   rainMm: number
   alerts: { probe: boolean; tank: boolean; pump: boolean }
+  airRh: number | null
+  soilT: number | null
+  ec: number | null
+  sensors: VisualSensor[]
+  /** Actuadores distintos de la bomba (que tiene su propio modelo). */
+  acts: VisualActuator[]
 }
 
 export const EMPTY_VISUAL: VisualState = {
@@ -39,13 +75,18 @@ export const EMPTY_VISUAL: VisualState = {
   stageCode: '',
   awPct: 55,
   vwcPct: 40,
-  plant: { heightCm: 12, leafCount: 3, lai: 0.3, wilt: 0, health: 1, hasTassel: false, hasFruit: false },
+  plant: { heightCm: 12, leafCount: 3, lai: 0.3, wilt: 0, health: 1, hasTassel: false, hasFruit: false, yellow: 0, scorch: 0, rot: 0, stunt: 0, dead: false },
   lux: 30000,
   airT: null,
   pumpOn: false,
   tankOk: true,
   rainMm: 0,
   alerts: { probe: false, tank: false, pump: false },
+  airRh: null,
+  soilT: null,
+  ec: null,
+  sensors: [],
+  acts: [],
 }
 
 // ---- Almacén mínimo (la escena lee en useFrame; React solo se entera de lo discreto) ----
@@ -119,6 +160,11 @@ function visualPlant(p: PlantParams | null | undefined, awFallback?: number): Vi
     health,
     hasTassel: !!p.has_tassel,
     hasFruit: !!p.has_fruit,
+    yellow: num(p.yellow, 0),
+    scorch: num(p.scorch, 0),
+    rot: num(p.rot, 0),
+    stunt: num(p.stunt, 0),
+    dead: !!p.dead,
   }
 }
 
@@ -156,7 +202,35 @@ export function visualFromLive(s: TwinState | null, tel: (Telemetry & { _rx: num
     tankOk: (fresh?.tank_ok ?? r.tank_ok) !== false,
     rainMm: 0,
     alerts: alertTargets(s.alerts),
+    airRh: r.air_rh ?? null,
+    soilT: r.soil_t ?? null,
+    ec: r.ec ?? null,
+    sensors: liveSensors(s),
+    acts: liveActs(s),
   }
+}
+
+const BUILTIN: [keyof NonNullable<TwinState['readings']>, string, string][] = [
+  ['vwc_pct', 'Humedad del suelo', '%'], ['soil_t', 'Temp. del suelo', '°C'], ['air_t', 'Temp. del aire', '°C'],
+  ['air_rh', 'Humedad del aire', '%'], ['lux', 'Luz', 'lx'], ['ph', 'pH', ''], ['ec', 'EC', 'µS/cm'],
+  ['n', 'Nitrógeno', ''], ['p', 'Fósforo', ''], ['k', 'Potasio', ''], ['tank_ok', 'Tanque con agua', ''],
+]
+
+function liveSensors(s: TwinState): VisualSensor[] {
+  const r = s.readings ?? {}
+  const out: VisualSensor[] = []
+  for (const [k, label, unit] of BUILTIN) {
+    const v = r[k]
+    if (v !== undefined && v !== null) out.push({ key: k, label, unit, value: v, status: null })
+  }
+  for (const c of s.custom ?? []) out.push({ key: c.key, label: c.label, unit: c.unit, value: c.value, status: c.status })
+  return out
+}
+
+function liveActs(s: TwinState): VisualActuator[] {
+  return (s.actuators ?? [])
+    .filter((a) => !/^pump$|bomba/i.test(`${a.key}`) && !/bomba/i.test(a.label))
+    .map((a) => ({ key: a.key, label: a.label, on: !!a.on, kind: actuatorKind(a.key, a.label) }))
 }
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t
@@ -188,6 +262,11 @@ export function visualFromSim(sim: SimResponse, pos: number): VisualState {
       health: lerp(pa.health, pb.health, f),
       hasTassel: near.plant.has_tassel,
       hasFruit: near.plant.has_fruit,
+      yellow: lerp(pa.yellow, pb.yellow, f),
+      scorch: lerp(pa.scorch, pb.scorch, f),
+      rot: lerp(pa.rot, pb.rot, f),
+      stunt: lerp(pa.stunt, pb.stunt, f),
+      dead: near.plant.dead === true,
     },
     lux: lerp(a.lux, b.lux, f),
     airT: lerp(a.air_t, b.air_t, f),
@@ -195,5 +274,14 @@ export function visualFromSim(sim: SimResponse, pos: number): VisualState {
     tankOk: true,
     rainMm: near.rain_mm,
     alerts: { probe: a.ks < 0.5, tank: false, pump: false },
+    airRh: null,
+    soilT: null,
+    ec: null,
+    sensors: [
+      { key: 'vwc_pct', label: 'Humedad del suelo', unit: '%', value: lerp(a.vwc_pct, b.vwc_pct, f), status: null },
+      { key: 'air_t', label: 'Temp. del aire', unit: '°C', value: lerp(a.air_t, b.air_t, f), status: null },
+      { key: 'lux', label: 'Luz', unit: 'lx', value: lerp(a.lux, b.lux, f), status: null },
+    ],
+    acts: [],
   }
 }

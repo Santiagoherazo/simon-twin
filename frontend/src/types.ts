@@ -82,6 +82,48 @@ export interface AlertItem {
   code: string
   level: AlertLevel
   message: string
+  /** Alertas del modelo de cultivo: qué pasa, por qué, qué consecuencia tiene y qué hacer. */
+  title?: string
+  cause?: string
+  consequence?: string
+  action?: string
+}
+
+/** Evento del ciclo de cultivo (estrés, enfermedad, hito de etapa…). */
+export interface CropEvent {
+  code: string
+  level: AlertLevel
+  title: string
+  cause: string
+  consequence: string
+  action: string
+  t_hour: number
+  last_t_hour: number
+  hours: number
+  episodes: number
+  active?: boolean
+}
+
+export interface CropSummary {
+  yield_pct: number
+  vigor_pct: number
+  health_pct: number
+  root_health_pct: number
+  dead: boolean
+  harvested: boolean
+  losses: Record<string, number>
+  hours: Record<string, number>
+  diseases: Record<string, number>
+  risks: Record<string, number>
+  salinity_loss_pct: number | null
+}
+
+export interface HealthBlock {
+  summary: CropSummary
+  factors: Record<string, number>
+  events: CropEvent[]
+  window_h: number
+  factor_names: Record<string, string>
 }
 
 export interface Prediction {
@@ -101,6 +143,13 @@ export interface PlantParams {
   health: number | null
   has_tassel: boolean
   has_fruit: boolean
+  /** Intensidades 0–1 del motor de cultivo (opcionales: solo si hay modelo). */
+  yellow?: number
+  rot?: number
+  scorch?: number
+  stunt?: number
+  spots?: number
+  dead?: boolean
 }
 
 export interface TwinState {
@@ -123,10 +172,92 @@ export interface TwinState {
   soil?: SoilInfo | null
   suitability?: Suitability | null
   alerts?: AlertItem[]
+  models?: { id: string; name: string; ok: boolean; error?: string; output?: unknown; overrides?: Record<string, { was: unknown; now: number }> }[]
   prediction?: Prediction | null
   plant?: PlantParams | null
   /** true cuando las lecturas vienen directo del ESP32 (modo local, sin nube). */
   local?: boolean
+  /** Variables personalizadas e indicadores definidos en el panel admin. */
+  custom?: CustomVar[]
+  actuators?: ActuatorState[]
+  config_version?: number
+  health?: HealthBlock | null
+}
+
+export interface CustomVar {
+  key: string
+  label: string
+  unit: string
+  kind: 'sensor' | 'indicator'
+  value: number | boolean | null
+  min_ok: number | null
+  max_ok: number | null
+  status: 'low' | 'ok' | 'high' | null
+}
+export interface ActuatorState {
+  key: string
+  label: string
+  on: boolean | null
+  max_seconds: number
+}
+
+// ---- configuración editable del dispositivo (panel admin) ----
+export type SensorDriver = 'analog' | 'digital' | 'dht_t' | 'dht_h' | 'ds18b20' | 'bh1750' | 'simulated'
+export type ActuatorDriver = 'relay' | 'digital_out' | 'pwm'
+export interface SensorCfg {
+  key: string
+  label: string
+  driver: SensorDriver
+  pin: number | null
+  param: number | null
+  unit: string
+  scale: number
+  offset: number
+  sim_min: number | null
+  sim_max: number | null
+  min_ok: number | null
+  max_ok: number | null
+  enabled: boolean
+}
+export interface ActuatorCfg {
+  key: string
+  label: string
+  driver: ActuatorDriver
+  pin: number | null
+  active_high: boolean
+  max_seconds: number
+  auto_variable: string | null
+  auto_on_below: number | null
+  auto_on_above: number | null
+  auto_off_at: number | null
+  auto_seconds: number
+  cooldown_s: number
+  enabled: boolean
+}
+export interface IndicatorCfg {
+  key: string
+  label: string
+  formula: string
+  unit: string
+  min_ok: number | null
+  max_ok: number | null
+  enabled: boolean
+}
+export interface DeviceConfigFull {
+  device_id: string
+  version: number
+  report_interval_s: number
+  sensors: SensorCfg[]
+  actuators: ActuatorCfg[]
+  indicators: IndicatorCfg[]
+  warnings?: string[]
+}
+export interface DriverInfo {
+  driver: string
+  kind: 'sensor' | 'actuator'
+  label: string
+  needs_pin: boolean
+  help: string
 }
 
 export interface Telemetry {
@@ -144,6 +275,9 @@ export interface Telemetry {
 export interface CropInfo {
   id: string
   name: string
+  category?: string
+  yield_potential_kg_m2?: number
+  sources?: string[]
   stages: { code: string; name: string; gdd_start: number }[]
 }
 export interface SoilCatalogItem {
@@ -154,9 +288,12 @@ export interface SoilCatalogItem {
 // ---- simulación ----
 export interface SimEventInput {
   at_hour: number
-  type: 'irrigation' | 'rain'
+  type: 'irrigation' | 'rain' | 'fertilize'
   mm?: number
   seconds?: number
+  n?: number
+  p?: number
+  k?: number
 }
 
 export interface SimRequest {
@@ -173,14 +310,73 @@ export interface SimRequest {
     lux_peak?: number
   }
   events: SimEventInput[]
-  auto_irrigation: { enabled: boolean; mm: number }
+  auto_irrigation: { enabled: boolean; mm: number; trigger_aw_pct?: number | null }
   overrides: {
     crop?: string
     soil_type?: string
     vwc_pct?: number
     gdd?: number
     soil_depth_cm?: number
+    crop_params?: Record<string, number>
+    drainage?: 'bueno' | 'regular' | 'malo' | 'sin_salida' | null
+    ph?: number
+    ec?: number
+    n?: number
+    p?: number
+    k?: number
   }
+  management?: { disease_control: number; pest_control: number }
+}
+
+export interface CropParam {
+  key: string
+  label: string
+  unit: string
+  min: number
+  max: number
+  help: string
+  value: number
+}
+
+export interface RecommendItem {
+  crop: string
+  name: string
+  category?: string
+  yield_pct: number
+  vigor_pct?: number
+  harvested: boolean
+  days: number | null
+  dead?: boolean
+  yield_kg_m2?: number
+  verdict: string
+  issues: { title: string; level: AlertLevel; cause: string; action: string }[]
+  losses?: Record<string, number>
+}
+export interface RecommendResponse {
+  device_id: string
+  basis: string
+  ranking: RecommendItem[]
+  disclaimer: string
+}
+
+export interface OptimizeRow {
+  trigger_aw_pct: number
+  mm: number
+  yield_pct: number
+  vigor_pct: number
+  irrigation_mm: number
+  critical_events: number
+  dead: boolean
+  score: number
+  hours_water_stress: number
+  waterlog_h: number
+}
+export interface OptimizeResponse {
+  best: OptimizeRow
+  top: OptimizeRow[]
+  worst: OptimizeRow
+  all: OptimizeRow[]
+  note: string
 }
 
 export interface SimPoint {
@@ -203,6 +399,13 @@ export interface SimPoint {
   rain_mm: number
   needs_irrigation: boolean
   plant: PlantParams
+  health?: number
+  vigor_pct?: number
+  yield_pct?: number
+  root_pct?: number
+  hypoxia?: number
+  stress?: Record<string, number>
+  vpd?: number
 }
 
 export interface SimSummary {
@@ -216,6 +419,7 @@ export interface SimSummary {
   growth_index: number
   final_stage: string
   final_plant: PlantParams
+  crop_model?: CropSummary
 }
 
 export interface SimResponse {
@@ -231,4 +435,24 @@ export interface SimResponse {
   }
   summary: SimSummary
   series: SimPoint[]
+  events?: CropEvent[]
+}
+
+export interface FitItem {
+  crop: string
+  name: string
+  category?: string
+  rank: number
+  score: number
+  health_pct: number
+  dead: boolean
+  current: boolean
+  issues: { title: string; level: string; cause: string; action: string }[]
+}
+export interface FitResponse {
+  device_id: string
+  window_h: number
+  ranking: FitItem[]
+  note: string | null
+  disclaimer: string
 }

@@ -11,6 +11,8 @@ import { reducedMotion, sm } from './smooth'
 // ---------- utilidades ----------
 const YELLOW = new THREE.Color('#cdbb3c')
 const DRY = new THREE.Color('#9a8446')
+const BURN = new THREE.Color('#5a3a1c')
+const DEAD = new THREE.Color('#6b6250')
 const STRAW = new THREE.Color('#b9a45a')
 
 /** Seudoaleatorio determinista por índice (la mata se ve igual en cada carga). */
@@ -22,8 +24,10 @@ const rnd = (i: number) => {
 /** Tono de la hoja: verde sano → amarillento según salud → seco según marchitez. */
 function tint(out: THREE.Color, healthy: string, health: number, wilt: number) {
   out.set(healthy)
-  out.lerp(YELLOW, Math.min(1, (1 - health) * 0.95))
+  out.lerp(YELLOW, Math.min(1, Math.max((1 - health) * 0.95, sm.yellow)))
   out.lerp(DRY, wilt * 0.5)
+  out.lerp(BURN, Math.min(1, sm.scorch) * 0.85)      // hojas quemadas por frío, calor o helada
+  out.lerp(DEAD, sm.dead)                            // planta muerta: gris parduzco
   return out
 }
 
@@ -267,7 +271,7 @@ function Maize({ n, tassel, ears }: { n: number; tassel: boolean; ears: boolean 
       e.scale.setScalar(0.75 + 0.06 * H)
     })
     if (root.current) {
-      const sway = reducedMotion() ? 0 : Math.sin(clock.elapsedTime * 0.9) * 0.012 * (1 + 0.5 * sm.lai * 0.2)
+      const sway = reducedMotion() ? 0 : Math.sin(clock.elapsedTime * (0.9 + sm.fan * 2.4)) * 0.012 * (1 + 0.5 * sm.lai * 0.2 + sm.fan * 3)
       root.current.rotation.z = sway + sm.wilt * 0.05
     }
   })

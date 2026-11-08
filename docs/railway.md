@@ -20,3 +20,8 @@ Notas
 - `VITE_MQTT_URL` debe ser `wss://…` hacia un dominio público de Mosquitto con *target port* 9001 (WebSocket). Para ESP32 reales usa un *TCP Proxy* al puerto 1883.
 - Backend y frontend usan el `PORT` que da Railway.
 - No subas archivos `.env.*` con contraseñas al repositorio.
+
+## Variables opcionales
+- `REDIS_URL`: caché de estado/recomendaciones (sin ella funciona igual).
+- `SUPABASE_DB_URL`: respaldo/sincronización a Supabase (ver `respaldo-supabase.md`).
+- Cuadernos del panel admin: la imagen instala numpy/pandas/scikit-learn/matplotlib (`requirements-ml.txt`); usa `--build-arg WITH_ML=0` para omitirlos.

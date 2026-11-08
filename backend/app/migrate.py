@@ -27,6 +27,16 @@ TIMESCALE_STEPS = [
 ]
 
 
+async def seed_device_configs(pool: asyncpg.Pool) -> None:
+    """esp32-01 arranca con una configuración (sensores simulados + bomba) para que el panel admin no esté vacío."""
+    from .devcfg import default_config_esp32, save_config
+
+    if await pool.fetchval("SELECT 1 FROM devices WHERE device_id = 'esp32-01'") and \
+            not await pool.fetchval("SELECT 1 FROM device_sensors WHERE device_id = 'esp32-01' LIMIT 1"):
+        await save_config(pool, "esp32-01", default_config_esp32())
+        log.info("configuración inicial creada para esp32-01")
+
+
 async def migrate(pool: asyncpg.Pool) -> bool:
     """Devuelve True si además quedó activo TimescaleDB."""
     async with pool.acquire() as con:

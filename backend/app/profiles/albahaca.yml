@@ -1,0 +1,33 @@
+# Perfil de cultivo: ALBAHACA (Ocimum basilicum)
+# Valores indicativos para un prototipo; validar con fuentes agronómicas locales (AGROSAVIA, ICA, UNAL).
+# Fuentes y supuestos en docs/modelo-cultivo.md
+id: albahaca
+name: Albahaca
+scientific: Ocimum basilicum
+note: Valores indicativos para un prototipo; validar con fuentes agronómicas locales (AGROSAVIA, ICA, UNAL).
+category: herb
+gdd: {base_c: 10, cap_c: 32, maturity: 700}
+water: {p_depletion: 0.4}
+optimal:
+  air_t: [20, 30]
+  soil_t: [18, 28]
+  ph: [6.0, 7.0]
+  ec: [300, 1500]
+  n: [40, 120]
+  p: [20, 60]
+  k: [100, 300]
+  vpd_kpa: [0.6, 1.4]
+  light: [25000, 65535]
+weights: {soil_moisture: 3.0, air_t: 1.5, soil_t: 1.0, ph: 1.0, ec: 0.5, n: 1.0, p: 1.0, k: 1.0, vpd_kpa: 1.0, light: 0.5}
+stages:
+- {code: ES, name: Establecimiento, gdd_start: 0, kc: 0.5, root_depth_cm: 15}
+- {code: VG, name: Crecimiento, gdd_start: 100, kc: 0.8, root_depth_cm: 25}
+- {code: CR, name: Plena producción, gdd_start: 300, kc: 1.0, root_depth_cm: 30}
+- {code: MD, name: Cosecha, gdd_start: 520, kc: 0.9, root_depth_cm: 30}
+plant_visual: {max_height_cm: 60, height_full_gdd: 450, max_leaves: 30, leaves_full_gdd: 450, max_lai: 3.0}
+repro_stages: []
+yield_potential_kg_m2: 2.0
+stress: {cold_c: 12, chill_c: 10, frost_c: 2, susc_blight: 0.9, susc_botrytis: 1.3, hypoxia_onset_h: 36}
+sources: ['FAO-56 (Allen et al., 1998): Kc, p de agotamiento y duración de etapas (valores de tabla; GDD derivados
+    de la duración × temperatura media típica)', Hierba sensible al frío (daño bajo ~10 °C); mildiú velloso favorecido
+    por hoja mojada y noches frescas (extensión universitaria)]

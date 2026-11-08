@@ -148,6 +148,32 @@ function Content({ s }: { s: TwinState }) {
         </div>
       </section>
 
+      {(!!s.custom?.length || !!s.actuators?.length) && (
+        <section className="card" id="card-custom" aria-labelledby="cust-h">
+          <h2 id="cust-h">Variables e indicadores</h2>
+          <div className="tiles">
+            {s.custom?.map((c) => (
+              <Tile
+                key={c.key}
+                icon={c.kind === 'indicator' ? 'bolt' : 'leaf'}
+                tone={c.status === 'high' ? 'rose' : c.status === 'low' ? 'sun' : 'leaf'}
+                value={c.value == null ? '—' : typeof c.value === 'boolean' ? (c.value ? 'sí' : 'no') : `${fmt(c.value, Math.abs(c.value) >= 100 ? 0 : 2)}${c.unit ? ' ' + c.unit : ''}`}
+                label={c.label + (c.status === 'high' ? ' · alto' : c.status === 'low' ? ' · bajo' : '')}
+              />
+            ))}
+          </div>
+          {!!s.actuators?.length && (
+            <div className="status-row">
+              {s.actuators.map((a) => (
+                <span key={a.key} className={'pill ' + (a.on ? 'water' : 'idle')}>
+                  {a.label} {a.on == null ? '—' : a.on ? 'activo' : 'apagado'}
+                </span>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
       {s.prediction && (
         <section className="card pred" aria-labelledby="pred-h">
           <h2 id="pred-h">Próximo riego</h2>
@@ -159,6 +185,8 @@ function Content({ s }: { s: TwinState }) {
         </section>
       )}
 
+      {s.health && <HealthBlockCard h={s.health} />}
+
       <Sparkline deviceId={s.device_id} />
 
       {s.suitability && <SuitabilityBlock s={s.suitability} />}
@@ -169,7 +197,16 @@ function Content({ s }: { s: TwinState }) {
           <ul className="alerts">
             {s.alerts.map((a) => (
               <li key={a.code} className={a.level}>
-                {a.message}
+                {a.title ? (
+                  <>
+                    <b>{a.title}</b>
+                    {a.cause && <span className="al-line">{a.cause}</span>}
+                    {a.consequence && <span className="al-line">→ {a.consequence}</span>}
+                    {a.action && <span className="al-line al-act">Qué hacer: {a.action}</span>}
+                  </>
+                ) : (
+                  a.message
+                )}
               </li>
             ))}
           </ul>
@@ -178,6 +215,46 @@ function Content({ s }: { s: TwinState }) {
 
       <PumpControl deviceId={s.device_id} online={s.online} />
     </>
+  )
+}
+
+function HealthBlockCard({ h }: { h: NonNullable<TwinState['health']> }) {
+  const f = Object.entries(h.factors).filter(([, v]) => v < 0.97).sort((a, b) => a[1] - b[1])
+  const sm = h.summary
+  return (
+    <section className="card" aria-labelledby="hl-h">
+      <h2 id="hl-h">Salud de la planta</h2>
+      <div className="grid">
+        <div className="kpi">
+          <b>{Math.round(sm.health_pct)} %</b>
+          <small>salud general</small>
+        </div>
+        <div className="kpi">
+          <b>{Math.round(sm.root_health_pct)} %</b>
+          <small>raíz</small>
+        </div>
+        <div className="kpi">
+          <b>{Math.round(sm.yield_pct)} %</b>
+          <small>rendimiento proyectado</small>
+        </div>
+      </div>
+      {f.length > 0 ? (
+        <ul className="hl-factors" aria-label="Factores que frenan el crecimiento ahora">
+          {f.map(([k, v]) => (
+            <li key={k}>
+              <span>{h.factor_names[k] ?? k}</span>
+              <span className="hl-bar" aria-hidden="true">
+                <i style={{ width: `${Math.round((1 - v) * 100)}%` }} />
+              </span>
+              <b>−{Math.round((1 - v) * 100)} %</b>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="muted">Nada frena el crecimiento en este momento.</p>
+      )}
+      <small className="muted">Calculado repitiendo las últimas {Math.round(h.window_h / 24)} días de lecturas por el modelo de ciclo de cultivo.</small>
+    </section>
   )
 }
 

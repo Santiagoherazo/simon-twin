@@ -61,3 +61,20 @@ plant_visual:
   max_lai: 4.5
   tassel_from_stage: VT    # aparece la panoja
   fruit_from_stage: R3     # aparecen las mazorcas
+
+# --- ciclo de cultivo (estreses) ---
+category: grain
+repro_stages: [VT, R3]
+yield_potential_kg_m2: 1.1   # ~11 t/ha de grano
+stress:
+  heat_c: 33
+  repro_heat_c: 35          # >35 °C (95 °F) seca estigmas y daña polen (Purdue)
+  repro_drought: 0.08       # hasta 8 %/día de pérdida con estrés severo en espigamiento (Purdue)
+  hypoxia_onset_h: 60       # el maíz tolera 3–7 días de suelo saturado (Manitoba); más sensible antes de V5
+  root_lethal_h: 120
+  ec_threshold_ds: 1.7      # FAO-29
+  ec_slope_pct: 12
+sources:
+  - "FAO-56: Kc y duración de etapas"
+  - "Purdue Univ.: sequía y calor en polinización del maíz"
+  - "Manitoba Agriculture: exceso de humedad en cultivos"

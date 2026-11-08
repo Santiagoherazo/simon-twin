@@ -15,6 +15,7 @@ class Soil:
     theta_sat: float   # saturación
     theta_fc: float    # capacidad de campo
     theta_wp: float    # punto de marchitez permanente
+    drain_tau_h: float = 3.0   # constante de drenaje del exceso sobre capacidad de campo (h): grande = se encharca
 
     @property
     def taw_per_cm(self) -> float:
@@ -25,12 +26,12 @@ class Soil:
 SOILS: dict[str, Soil] = {
     s.id: s
     for s in [
-        Soil("arenoso", "Arenoso", 0.43, 0.12, 0.05),
-        Soil("franco_arenoso", "Franco arenoso", 0.41, 0.18, 0.08),
-        Soil("franco", "Franco", 0.46, 0.27, 0.12),
-        Soil("franco_arcilloso", "Franco arcilloso", 0.48, 0.34, 0.20),
-        Soil("arcilloso", "Arcilloso", 0.50, 0.40, 0.27),
-        Soil("sustrato", "Sustrato de maceta (turba/perlita)", 0.70, 0.50, 0.15),
+        Soil("arenoso", "Arenoso", 0.43, 0.12, 0.05, 1.5),
+        Soil("franco_arenoso", "Franco arenoso", 0.41, 0.18, 0.08, 2.5),
+        Soil("franco", "Franco", 0.46, 0.27, 0.12, 6.0),
+        Soil("franco_arcilloso", "Franco arcilloso", 0.48, 0.34, 0.20, 16.0),
+        Soil("arcilloso", "Arcilloso", 0.50, 0.40, 0.27, 36.0),
+        Soil("sustrato", "Sustrato de maceta (turba/perlita)", 0.70, 0.50, 0.15, 3.0),
     ]
 }
 

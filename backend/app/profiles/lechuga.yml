@@ -1,0 +1,33 @@
+# Perfil de cultivo: LECHUGA (Lactuca sativa)
+# Valores indicativos para un prototipo; validar con fuentes agronómicas locales (AGROSAVIA, ICA, UNAL).
+# Fuentes y supuestos en docs/modelo-cultivo.md
+id: lechuga
+name: Lechuga
+scientific: Lactuca sativa
+note: Valores indicativos para un prototipo; validar con fuentes agronómicas locales (AGROSAVIA, ICA, UNAL).
+category: leaf
+gdd: {base_c: 4, cap_c: 26, maturity: 700}
+water: {p_depletion: 0.3}
+optimal:
+  air_t: [12, 22]
+  soil_t: [10, 20]
+  ph: [6.0, 7.0]
+  ec: [300, 1200]
+  n: [40, 120]
+  p: [20, 60]
+  k: [100, 300]
+  vpd_kpa: [0.4, 1.0]
+  light: [15000, 50000]
+weights: {soil_moisture: 3.0, air_t: 1.5, soil_t: 1.0, ph: 1.0, ec: 0.5, n: 1.0, p: 1.0, k: 1.0, vpd_kpa: 1.0, light: 0.5}
+stages:
+- {code: ES, name: Establecimiento, gdd_start: 0, kc: 0.7, root_depth_cm: 10}
+- {code: VG, name: Hojas en roseta, gdd_start: 90, kc: 0.85, root_depth_cm: 15}
+- {code: HC, name: Formación de cabeza, gdd_start: 330, kc: 1.0, root_depth_cm: 25}
+- {code: MD, name: Madurez de cosecha, gdd_start: 560, kc: 0.95, root_depth_cm: 30}
+plant_visual: {max_height_cm: 30, height_full_gdd: 450, max_leaves: 24, leaves_full_gdd: 450, max_lai: 3.0}
+repro_stages: []
+yield_potential_kg_m2: 3.0
+stress: {tipburn_dli: 17, bolt_c: 26, frost_c: -2, dli_min: 12, ec_threshold_ds: 1.3, ec_slope_pct: 13}
+sources: ['FAO-56 (Allen et al., 1998): Kc, p de agotamiento y duración de etapas (valores de tabla; GDD derivados
+    de la duración × temperatura media típica)', 'FAO-29 / Maas-Hoffman: umbral y pendiente de salinidad', 'Cornell
+    (Mattson): DLI mínimo 12 y óptimo 17; >17 mol/m²/día por 3+ días causa tipburn']

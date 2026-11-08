@@ -55,3 +55,25 @@ plant_visual:
   max_lai: 3.5
   tassel_from_stage: FL     # aparecen las flores
   fruit_from_stage: FR
+
+# --- ciclo de cultivo (estreses) ---
+category: fruit
+repro_stages: [FL, FR]
+yield_potential_kg_m2: 8
+stress:
+  temp_opt: [18, 28]
+  heat_c: 32
+  repro_heat_c: 35          # >35 °C baja el cuajado (Ontario OMAFRA); polen sensible 33/27 °C varios días
+  repro_night_c: 24
+  repro_cold_c: 10          # <10 °C mal cuajado; <13 °C frutos deformes
+  cold_c: 8
+  chill_c: 5                # daño de planta por frío: 0–5 °C
+  ec_threshold_ds: 2.5      # FAO-29 / Maas-Hoffman: umbral 2.5, pendiente 9.9 %/dS/m
+  ec_slope_pct: 9.9
+  dli_min: 20
+  susc_blight: 1.2
+sources:
+  - "FAO-56 (Allen 1998): Kc, p de agotamiento, duración de etapas"
+  - "FAO-29 / Maas-Hoffman: salinidad"
+  - "OMAFRA Ontario: temperaturas extremas en tomate y pimentón"
+  - "Cornell (Mattson): DLI mínimo 20 y óptimo 30 mol/m²/día"

@@ -80,6 +80,7 @@ def pct_from_theta(theta: float, soil: Soil) -> float:
 def step(
     theta: float, dt_h: float, *, soil: Soil, root_depth_cm: float, kc: float, p: float,
     et0_h: float, irrigation_mm: float = 0.0, rain_mm: float = 0.0, et_scale: float = 1.0,
+    drain_tau_h: float | None = None,
 ) -> tuple[float, float, float]:
     """Avanza dt_h horas. Devuelve (theta_nuevo, etc_mm_h, ks)."""
     root_mm = root_depth_cm * 10.0
@@ -89,7 +90,8 @@ def step(
     etc = et0_h * kc * sw.ks * et_scale
     new = available - etc * dt_h / root_mm
     if new > soil.theta_fc:
-        new = soil.theta_fc + (new - soil.theta_fc) * math.exp(-dt_h / DRAIN_TAU_H)
+        tau = drain_tau_h if drain_tau_h is not None else soil.drain_tau_h
+        new = soil.theta_fc + (new - soil.theta_fc) * math.exp(-dt_h / max(tau, 0.1))
     new = min(max(new, soil.theta_wp * 0.6), soil.theta_sat)
     return new, etc, sw.ks
 

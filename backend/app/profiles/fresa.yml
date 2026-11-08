@@ -1,0 +1,52 @@
+# Perfil de cultivo: FRESA (Fragaria × ananassa)
+# Valores indicativos para un prototipo; validar con fuentes agronómicas locales (AGROSAVIA, ICA, UNAL).
+# Fuentes y supuestos en docs/modelo-cultivo.md
+id: fresa
+name: Fresa
+scientific: Fragaria × ananassa
+note: Valores indicativos para un prototipo; validar con fuentes agronómicas locales (AGROSAVIA, ICA, UNAL).
+category: fruit
+gdd: {base_c: 5, cap_c: 28, maturity: 1200}
+water: {p_depletion: 0.2}
+optimal:
+  air_t: [15, 25]
+  soil_t: [12, 22]
+  ph: [5.5, 6.5]
+  ec: [200, 1000]
+  n: [30, 100]
+  p: [20, 60]
+  k: [120, 320]
+  vpd_kpa: [0.4, 1.0]
+  light: [20000, 55000]
+weights: {soil_moisture: 3.0, air_t: 1.5, soil_t: 1.0, ph: 1.0, ec: 0.5, n: 1.0, p: 1.0, k: 1.0, vpd_kpa: 1.0, light: 0.5}
+stages:
+- {code: ES, name: Establecimiento, gdd_start: 0, kc: 0.4, root_depth_cm: 15}
+- {code: VG, name: Vegetativo, gdd_start: 200, kc: 0.65, root_depth_cm: 25}
+- {code: FL, name: Floración, gdd_start: 500, kc: 0.85, root_depth_cm: 30}
+- {code: FR, name: Fructificación, gdd_start: 700, kc: 0.85, root_depth_cm: 35}
+- {code: MD, name: Cosecha continua, gdd_start: 1000, kc: 0.75, root_depth_cm: 35}
+plant_visual: {max_height_cm: 25, height_full_gdd: 500, max_leaves: 18, leaves_full_gdd: 500, max_lai: 3.0, tassel_from_stage: FL,
+  fruit_from_stage: FR}
+repro_stages: [FL, FR]
+yield_potential_kg_m2: 1.5
+stress:
+  temp_opt: [15, 25]
+  heat_c: 28
+  heat_crit_c: 36
+  repro_heat_c: 30
+  repro_night_c: 20
+  cold_c: 3
+  chill_c: 0
+  frost_c: -1
+  dli_min: 17
+  ber: 0
+  ec_threshold_ds: 1.0
+  ec_slope_pct: 33
+  susc_botrytis: 2.2
+  susc_powdery: 1.6
+  susc_mites: 1.5
+  hypoxia_onset_h: 36
+sources: ['FAO-56 (Allen et al., 1998): Kc, p de agotamiento y duración de etapas (valores de tabla; GDD derivados
+    de la duración × temperatura media típica)', 'FAO-29 / Maas-Hoffman: umbral y pendiente de salinidad', 'Cornell
+    (Mattson): DLI mínimo 17 y óptimo 20', 'Moho gris (Botrytis) es la enfermedad clave de la fresa: favorecido
+    por hojas/frutos mojados y 15–25 °C']

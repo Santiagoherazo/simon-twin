@@ -4,6 +4,7 @@ derivados, guarda en TimescaleDB y dispara el recálculo del estado del twin."""
 import asyncio
 import ipaddress
 import json
+import math
 import logging
 import re
 import time
@@ -15,6 +16,7 @@ from pydantic import ValidationError
 
 from . import backup
 from .config import settings
+from .devcfg import KEY_RE, COLUMN_KEYS, DERIVED_KEYS, eval_formula, load_config
 from .kpis import vpd_kpa, vwc_pct
 from .schemas import Telemetry
 from .twin import schedule_state_publish
@@ -56,8 +58,8 @@ DEVICE_RE = re.compile(settings.device_id_regex)
 INSERT_TELEMETRY = """
 INSERT INTO telemetry (ts, device_id, vwc_raw, soil_t, ph, ec, n, p, k,
                        air_t, air_rh, lux, tank_ok, pump_on, pump_ma,
-                       vwc_pct, vpd_kpa)
-VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+                       vwc_pct, vpd_kpa, extra)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18::jsonb)
 ON CONFLICT DO NOTHING
 """
 
@@ -87,7 +89,7 @@ def resolve_ts(device_id: str, ts: float | None, now: float | None = None) -> da
 
 async def ensure_device(pool: asyncpg.Pool, device_id: str):
     """Fila de calibración del dispositivo; lo registra si es nuevo y su id es válido."""
-    sql = "SELECT vwc_raw_dry, vwc_raw_wet FROM devices WHERE device_id = $1"
+    sql = "SELECT vwc_raw_dry, vwc_raw_wet, config_version FROM devices WHERE device_id = $1"
     row = await pool.fetchrow(sql, device_id)
     if row:
         return row
@@ -97,12 +99,66 @@ async def ensure_device(pool: asyncpg.Pool, device_id: str):
     return await pool.fetchrow(sql, device_id)
 
 
-def telemetry_args(device_id: str, t: Telemetry, ts: datetime, dry: int, wet: int) -> tuple:
+def parse_telemetry(data) -> Telemetry:
+    """Valida el mensaje; si algún campo está mal (fuera de rango, tipo incorrecto) se descarta SOLO ese campo
+    y se conserva el resto de la lectura. Falla únicamente si el mensaje no es un objeto o queda sin nada útil."""
+    if not isinstance(data, dict):
+        raise ValueError("el mensaje no es un objeto JSON")
+    try:
+        t = Telemetry.model_validate(data)
+    except ValidationError as e:
+        bad = {err["loc"][0] for err in e.errors() if err["loc"]}
+        clean = {k: v for k, v in data.items() if k not in bad}
+        log.warning("campos inválidos descartados %s: %s", sorted(map(str, bad)), str(e.errors()[0]["msg"])[:80])
+        t = Telemetry.model_validate(clean)
+    if not any(getattr(t, f) is not None for f in Telemetry.model_fields if f not in ("v", "ts")) and not custom_values(t):
+        raise ValueError("el mensaje no trae ningún dato útil")
+    return t
+
+
+def custom_values(t: Telemetry) -> dict:
+    """Claves no estándar del mensaje (sensores personalizados): solo números/booleanos finitos, máx. 24."""
+    out: dict = {}
+    for k, v in (t.model_extra or {}).items():
+        if k in COLUMN_KEYS or k in DERIVED_KEYS or not KEY_RE.match(k):
+            continue
+        if isinstance(v, bool) or (isinstance(v, (int, float)) and math.isfinite(v)):
+            out[k] = v
+        if len(out) >= 24:
+            break
+    return out
+
+
+LUX_PER_PCT = 400.0  # aprox.: LDR al 100 % ≈ 40 000 lx. Sin calibrar: ajústalo con un luxómetro/BH1750.
+
+
+def derive_lux(lux, extra: dict | None):
+    """Si no llega `lux` pero sí las LDR de las esquinas (ldr_*, en %), la luz es su media × LUX_PER_PCT."""
+    if lux is not None or not extra:
+        return lux
+    vals = [v for k, v in extra.items() if k.startswith("ldr_") and isinstance(v, (int, float)) and not isinstance(v, bool)]
+    return round(sum(vals) / len(vals) * LUX_PER_PCT, 1) if vals else None
+
+
+def telemetry_args(device_id: str, t: Telemetry, ts: datetime, dry: int, wet: int, extra: dict | None = None) -> tuple:
     return (
         ts, device_id, t.vwc_raw, t.soil_t, t.ph, t.ec, t.n, t.p, t.k,
-        t.air_t, t.air_rh, t.lux, t.tank_ok, t.pump_on, t.pump_ma,
+        t.air_t, t.air_rh, derive_lux(t.lux, extra), t.tank_ok, t.pump_on, t.pump_ma,
         vwc_pct(t.vwc_raw, dry, wet), vpd_kpa(t.air_t, t.air_rh),
+        json.dumps(extra) if extra else None,
     )
+
+
+async def indicators_for(app, device_id: str, version: int) -> list[dict]:
+    """Indicadores activos del dispositivo (en memoria mientras no cambie config_version)."""
+    cache = app.state.__dict__.setdefault("ind_cache", {})
+    hit = cache.get(device_id)
+    if hit and hit[0] == version:
+        return hit[1]
+    cfg = await load_config(app.state.pool, device_id)
+    inds = [i for i in (cfg["indicators"] if cfg else []) if i["enabled"]]
+    cache[device_id] = (version, inds)
+    return inds
 
 
 async def process_telemetry(app, device_id: str, t: Telemetry) -> datetime | None:
@@ -115,7 +171,18 @@ async def process_telemetry(app, device_id: str, t: Telemetry) -> datetime | Non
     ts = resolve_ts(device_id, t.ts)
     async with pool.acquire() as con:
         async with con.transaction():           # lectura + cola de respaldo juntas: o quedan las dos o ninguna
-            await con.execute(INSERT_TELEMETRY, *telemetry_args(device_id, t, ts, dev["vwc_raw_dry"], dev["vwc_raw_wet"]))
+            extra = custom_values(t)
+            args = telemetry_args(device_id, t, ts, dev["vwc_raw_dry"], dev["vwc_raw_wet"], extra)
+            inds = await indicators_for(app, device_id, dev["config_version"])
+            if inds:
+                env = {**t.model_dump(), **extra, "vwc_pct": args[15], "vpd_kpa": args[16]}
+                for i in inds:
+                    v = eval_formula(i["formula"], env)
+                    if v is not None:
+                        extra[i["key"]] = v
+                        env[i["key"]] = v
+                args = telemetry_args(device_id, t, ts, dev["vwc_raw_dry"], dev["vwc_raw_wet"], extra)
+            await con.execute(INSERT_TELEMETRY, *args)
             await backup.enqueue(con, device_id, ts)
     cache = getattr(app.state, "cache", None)
     if cache is not None:
@@ -127,7 +194,7 @@ async def process_telemetry(app, device_id: str, t: Telemetry) -> datetime | Non
 
 async def handle_telemetry(app, device_id: str, payload: bytes) -> None:
     try:
-        t = Telemetry.model_validate(json.loads(payload))
+        t = parse_telemetry(json.loads(payload))
     except (ValueError, ValidationError) as e:
         log.warning("telemetría inválida de %s: %s", device_id, str(e)[:200])
         return
