@@ -85,6 +85,12 @@ def require_api_key(x_api_key: str = Header(default="")):
         raise HTTPException(status_code=401, detail="API key inválida")
 
 
+def models_access(x_api_key: str = Header(default="")):
+    """Los cuadernos no piden clave salvo que MODELS_REQUIRE_KEY=true; si llega una clave, debe ser válida."""
+    if settings.models_require_key or x_api_key:
+        require_api_key(x_api_key)
+
+
 def _hash_key(key: str) -> str:
     return hashlib.sha256(key.encode()).hexdigest()
 
@@ -543,7 +549,7 @@ def _notebook_templates():
     return [{"id": k, "name": v["name"], "cells": v["cells"]} for k, v in nbk.TEMPLATES.items()]
 
 
-@app.get("/admin/notebook-templates", dependencies=[Depends(require_api_key)])
+@app.get("/admin/notebook-templates", dependencies=[Depends(models_access)])
 async def notebook_templates():
     return _notebook_templates()
 
@@ -554,18 +560,18 @@ async def notebook_templates_public():
     return _notebook_templates()
 
 
-@app.get("/admin/notebooks", dependencies=[Depends(require_api_key)])
+@app.get("/admin/notebooks", dependencies=[Depends(models_access)])
 async def list_notebooks():
     rows = await app.state.pool.fetch("SELECT id, name, device_id, updated_at, live FROM notebooks ORDER BY updated_at DESC")
     return [{"id": r["id"], "name": r["name"], "device_id": r["device_id"], "updated_at": r["updated_at"].isoformat(), "live": r["live"]} for r in rows]
 
 
-@app.get("/admin/notebooks/{nb_id}", dependencies=[Depends(require_api_key)])
+@app.get("/admin/notebooks/{nb_id}", dependencies=[Depends(models_access)])
 async def get_notebook(nb_id: str):
     return _nb_out(await _nb_or_404(nb_id))
 
 
-@app.put("/admin/notebooks/{nb_id}", dependencies=[Depends(require_api_key)])
+@app.put("/admin/notebooks/{nb_id}", dependencies=[Depends(models_access)])
 async def put_notebook(nb_id: str, body: NotebookBody):
     row = await app.state.pool.fetchrow(
         """INSERT INTO notebooks (id, name, device_id, cells, updated_at) VALUES ($1,$2,$3,$4::jsonb, now())
@@ -575,7 +581,7 @@ async def put_notebook(nb_id: str, body: NotebookBody):
     return _nb_out(row)
 
 
-@app.delete("/admin/notebooks/{nb_id}", dependencies=[Depends(require_api_key)])
+@app.delete("/admin/notebooks/{nb_id}", dependencies=[Depends(models_access)])
 async def delete_notebook(nb_id: str):
     await app.state.pool.execute("DELETE FROM notebooks WHERE id=$1", _nb_id(nb_id))
     await app.state.kernels.drop(nb_id)
@@ -593,7 +599,7 @@ async def _kernel_for(nb_id: str, device_id: str | None, restart: bool = False):
     return k
 
 
-@app.post("/admin/notebooks/{nb_id}/run", dependencies=[Depends(require_api_key)])
+@app.post("/admin/notebooks/{nb_id}/run", dependencies=[Depends(models_access)])
 async def run_cell(nb_id: str, body: RunBody):
     """Ejecuta una celda en el kernel del cuaderno (las variables persisten entre celdas)."""
     row = await _nb_or_404(nb_id)
@@ -607,7 +613,7 @@ async def run_cell(nb_id: str, body: RunBody):
     return res
 
 
-@app.post("/admin/notebooks/{nb_id}/restart", dependencies=[Depends(require_api_key)])
+@app.post("/admin/notebooks/{nb_id}/restart", dependencies=[Depends(models_access)])
 async def restart_kernel(nb_id: str):
     """Reinicia el kernel (borra las variables y recarga las lecturas más recientes)."""
     row = await _nb_or_404(nb_id)
@@ -619,7 +625,7 @@ class DeployBody(BaseModel):
     live: bool
 
 
-@app.post("/admin/notebooks/{nb_id}/deploy", dependencies=[Depends(require_api_key)])
+@app.post("/admin/notebooks/{nb_id}/deploy", dependencies=[Depends(models_access)])
 async def deploy_notebook(nb_id: str, body: DeployBody):
     """Activa/desactiva el predict() del cuaderno sobre los datos en vivo de su dispositivo."""
     row = await _nb_or_404(nb_id)
@@ -633,7 +639,7 @@ async def deploy_notebook(nb_id: str, body: DeployBody):
     return {"ok": True, "live": body.live}
 
 
-@app.post("/admin/notebooks/{nb_id}/predict", dependencies=[Depends(require_api_key)])
+@app.post("/admin/notebooks/{nb_id}/predict", dependencies=[Depends(models_access)])
 async def predict_with_notebook(nb_id: str, body: dict | None = None):
     """Llama a predict(row) del cuaderno con la última lectura real (o con la fila enviada)."""
     row = await _nb_or_404(nb_id)

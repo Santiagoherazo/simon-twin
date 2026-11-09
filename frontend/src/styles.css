@@ -1457,3 +1457,5 @@ code {
 .admin .nb-cmp th, .admin .nb-cmp td { padding: 4px 6px; text-align: right; border-bottom: 1px solid var(--a-line); }
 .admin .nb-cmp th:first-child, .admin .nb-cmp td:first-child { text-align: left; }
 .admin .nb-cmp tr.cur td { font-weight: 600; }
+
+.admin .nb-tpls { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }

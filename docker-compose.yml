@@ -72,6 +72,7 @@ services:
       MQTT_USER: backend
       MQTT_PASSWORD: ${MQTT_BACKEND_PASSWORD}
       API_KEY: ${API_KEY:?copia .env.example a .env}
+      MODELS_REQUIRE_KEY: ${MODELS_REQUIRE_KEY:-false}
     ports:
       - "127.0.0.1:8000:8000"
 

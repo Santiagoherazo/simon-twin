@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     mqtt_public_host: str | None = None
     mqtt_public_port: int | None = None
     api_key: str
+    # Cuadernos/modelos abiertos por defecto (proyecto académico). Con MODELS_REQUIRE_KEY=true piden la API key.
+    models_require_key: bool = False
 
     # Solo se aceptan datos de dispositivos con este formato de id (esp32-01, sim-01...)
     device_id_regex: str = r"^(esp32|sim)-\d{2,3}$"

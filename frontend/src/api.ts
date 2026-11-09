@@ -210,7 +210,8 @@ const nb = <T>(path: string, apiKey: string, method = 'GET', body?: unknown) =>
     headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
     body: body === undefined ? undefined : JSON.stringify(body),
   }).catch((e) => {
-    if (e instanceof ApiError && e.status === 401) throw new ApiError(401, 'Escribe la API key arriba para usar los modelos.')
+    if (e instanceof ApiError && e.status === 401) throw new ApiError(401, 'El servidor pide la API key para los modelos (o la que escribiste no coincide con API_KEY del .env). Escríbela arriba.')
+    if (e instanceof ApiError && e.status === 404) throw new ApiError(404, 'El servidor no tiene los cuadernos: está corriendo una versión vieja del backend. Reconstruye con «docker compose up --build» (o redespliega).')
     throw e
   })
 

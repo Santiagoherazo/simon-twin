@@ -278,3 +278,21 @@ def test_hardware_confirmado_valido_y_lux_desde_ldr():
     assert derive_lux(None, {"ldr_nw": 50.0, "ldr_ne": 100.0, "otro": 5}) == 30000.0
     assert derive_lux(1234.0, {"ldr_nw": 50.0}) == 1234.0
     assert derive_lux(None, {"co2": 800}) is None
+
+
+def test_models_access_abierto_por_defecto():
+    import pytest
+    from fastapi import HTTPException
+    from app import main
+    old = main.settings.models_require_key
+    try:
+        main.settings.models_require_key = False
+        main.models_access("")                       # sin clave: pasa
+        with pytest.raises(HTTPException):
+            main.models_access("incorrecta")          # clave dada pero mala: se rechaza
+        main.settings.models_require_key = True
+        with pytest.raises(HTTPException):
+            main.models_access("")                    # exigida: sin clave no pasa
+        main.models_access(main.settings.api_key)
+    finally:
+        main.settings.models_require_key = old
