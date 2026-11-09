@@ -437,6 +437,7 @@ export function NotebookPanel({ apiKey, deviceId }: { apiKey: string; deviceId: 
             ))}
             <small className="muted">Vista previa (solo lectura). {apiKey ? 'Pulsa «Crear cuaderno» para ejecutarlo.' : 'Escribe la API key arriba para crear y ejecutar este modelo.'}</small>
           </div>
+        </div>
       )}
 
       {id && (
