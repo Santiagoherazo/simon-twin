@@ -539,9 +539,19 @@ def _nb_out(row) -> dict:
             "updated_at": row["updated_at"].isoformat(), "live": bool(row["live"])}
 
 
+def _notebook_templates():
+    return [{"id": k, "name": v["name"], "cells": v["cells"]} for k, v in nbk.TEMPLATES.items()]
+
+
 @app.get("/admin/notebook-templates", dependencies=[Depends(require_api_key)])
 async def notebook_templates():
-    return [{"id": k, "name": v["name"], "cells": v["cells"]} for k, v in nbk.TEMPLATES.items()]
+    return _notebook_templates()
+
+
+@app.get("/notebook-templates")
+async def notebook_templates_public():
+    """Modelos/plantillas básicos (solo lectura, sin API key)."""
+    return _notebook_templates()
 
 
 @app.get("/admin/notebooks", dependencies=[Depends(require_api_key)])

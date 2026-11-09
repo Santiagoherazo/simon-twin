@@ -225,4 +225,97 @@ def predict(row):
 predict({'air_t': 15, 'air_rh': 70, 'vwc_pct': 38})"""),
         ],
     },
+    "regresion-lineal": {
+        "name": "Básico: regresión lineal",
+        "cells": [
+            _c("Modelo básico: una regresión lineal aprende la relación entre variables del ambiente y predice la humedad del suelo (vwc_pct). No necesita API key para verse; para ejecutarlo y guardarlo usa la API key.", "text"),
+            _c("""import numpy as np, pandas as pd
+df = simon.data()
+feats = [c for c in ['air_t', 'air_rh', 'lux', 'soil_t'] if c in df.columns]
+if len(df) < 30 or 'vwc_pct' not in df.columns or not feats:
+    rng = np.random.default_rng(1)
+    n = 600
+    t = np.arange(n)
+    df = pd.DataFrame({
+        'air_t': 23 + 5*np.sin(t/96*2*np.pi) + rng.normal(0, .5, n),
+        'air_rh': 60 - 12*np.sin(t/96*2*np.pi) + rng.normal(0, 1.2, n),
+        'lux': np.clip(35000*np.sin(t/96*2*np.pi), 0, None),
+        'soil_t': 20 + 2*np.sin(t/96*2*np.pi) + rng.normal(0, .2, n),
+    })
+    feats = ['air_t', 'air_rh', 'lux', 'soil_t']
+    df['vwc_pct'] = 38 - 0.35*df['air_t'] + 0.08*df['air_rh'] - 0.00005*df['lux'] + rng.normal(0, 1.5, n)
+    print('usando datos sintéticos (pocas lecturas reales)')
+X = df[feats].ffill().bfill().to_numpy()
+y = df['vwc_pct'].ffill().bfill().to_numpy()
+cut = max(1, int(len(X) * .8))
+Xtr, Xte, ytr, yte = X[:cut], X[cut:], y[:cut], y[cut:]
+print('muestras:', len(X), 'variables:', feats)"""),
+            _c("""from sklearn.linear_model import LinearRegression
+from sklearn.metrics import mean_absolute_error, r2_score
+modelo = LinearRegression().fit(Xtr, ytr)
+pred = modelo.predict(Xte if len(Xte) else Xtr)
+ref = yte if len(yte) else ytr
+simon.log(1, mae=mean_absolute_error(ref, pred), r2=r2_score(ref, pred))
+print('MAE:', round(mean_absolute_error(ref, pred), 3), 'R2:', round(r2_score(ref, pred), 3))
+print('coeficientes:', dict(zip(feats, map(lambda v: round(float(v), 4), modelo.coef_))))"""),
+            _c("""@simon.register
+def predict(row):
+    x = np.array([[row.get(c) if row.get(c) is not None else float(np.nanmean(X[:, i])) for i, c in enumerate(feats)]], dtype=float)
+    est = float(modelo.predict(x)[0])
+    out = {'vwc_pct_estimada': round(est, 2), 'modelo': 'regresion_lineal'}
+    if est < 22:
+        simon.alert('warn', f'Regresión lineal estima humedad baja ({est:.1f} %)', 'vwc_pct')
+    return out
+
+predict({c: float(df[c].iloc[-1]) for c in feats})"""),
+        ],
+    },
+    "knn": {
+        "name": "Básico: KNN (vecinos más cercanos)",
+        "cells": [
+            _c("Modelo básico: KNN compara la lectura actual con lecturas pasadas similares (vecinos) para estimar la humedad del suelo. Simple e interpretable. No necesita API key para verse; para ejecutarlo y guardarlo usa la API key.", "text"),
+            _c("""import numpy as np, pandas as pd
+df = simon.data()
+feats = [c for c in ['air_t', 'air_rh', 'lux', 'soil_t'] if c in df.columns]
+if len(df) < 40 or 'vwc_pct' not in df.columns or not feats:
+    rng = np.random.default_rng(2)
+    n = 700
+    t = np.arange(n)
+    df = pd.DataFrame({
+        'air_t': 23 + 5*np.sin(t/96*2*np.pi) + rng.normal(0, .6, n),
+        'air_rh': 60 - 12*np.sin(t/96*2*np.pi) + rng.normal(0, 1.5, n),
+        'lux': np.clip(35000*np.sin(t/96*2*np.pi), 0, None),
+        'soil_t': 20 + 2*np.sin(t/96*2*np.pi) + rng.normal(0, .25, n),
+    })
+    feats = ['air_t', 'air_rh', 'lux', 'soil_t']
+    df['vwc_pct'] = 38 - 0.3*df['air_t'] + 0.07*df['air_rh'] - 0.00004*df['lux'] + rng.normal(0, 1.8, n)
+    print('usando datos sintéticos (pocas lecturas reales)')
+X = df[feats].ffill().bfill().to_numpy()
+y = df['vwc_pct'].ffill().bfill().to_numpy()
+cut = max(1, int(len(X) * .8))
+mu, sd = X[:cut].mean(0), X[:cut].std(0) + 1e-9
+Xn = (X - mu) / sd
+Xtr, Xte, ytr, yte = Xn[:cut], Xn[cut:], y[:cut], y[cut:]
+print('muestras:', len(X), 'variables:', feats, 'k=5')"""),
+            _c("""from sklearn.neighbors import KNeighborsRegressor
+from sklearn.metrics import mean_absolute_error, r2_score
+k = 5
+modelo = KNeighborsRegressor(n_neighbors=k, weights='distance').fit(Xtr, ytr)
+pred = modelo.predict(Xte if len(Xte) else Xtr)
+ref = yte if len(yte) else ytr
+simon.log(k, mae=mean_absolute_error(ref, pred), r2=r2_score(ref, pred))
+print(f'KNN k={k} -> MAE:', round(mean_absolute_error(ref, pred), 3), 'R2:', round(r2_score(ref, pred), 3))"""),
+            _c("""@simon.register
+def predict(row):
+    x = np.array([[row.get(c) if row.get(c) is not None else mu[i] for i, c in enumerate(feats)]], dtype=float)
+    est = float(modelo.predict((x - mu) / sd)[0])
+    vecinos = modelo.kneighbors((x - mu) / sd, n_neighbors=min(3, len(Xtr)), return_distance=True)[0][0]
+    out = {'vwc_pct_estimada': round(est, 2), 'modelo': f'knn(k={k})', 'dist_vecino': round(float(vecinos[0]), 3)}
+    if est < 22:
+        simon.alert('warn', f'KNN estima humedad baja ({est:.1f} %)', 'vwc_pct')
+    return out
+
+predict({c: float(df[c].iloc[-1]) for c in feats})"""),
+        ],
+    },
 }

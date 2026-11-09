@@ -3,7 +3,7 @@
 # Así no hay contraseñas guardadas en el repositorio.
 set -eu
 
-PW=/tmp/passwd
+PW=/mosquitto/data/passwd
 : > "$PW"
 mosquitto_passwd -b "$PW" backend "$MQTT_BACKEND_PASSWORD"
 mosquitto_passwd -b "$PW" sim-01  "$MQTT_SIM_PASSWORD"

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  ApiError, nbDelete, nbDeploy, nbGet, nbList, nbPredict, nbRestart, nbRun, nbSave, nbTemplates,
+  ApiError, nbDelete, nbDeploy, nbGet, nbList, nbPredict, nbRestart, nbRun, nbSave, nbTemplates, nbTemplatesPublic,
   type NbAlert, type NbCell, type NbMeta, type NbTemplate, type PredictResult, type RunResult,
 } from '../api'
 
@@ -166,17 +166,23 @@ export function NotebookPanel({ apiKey, deviceId }: { apiKey: string; deviceId: 
   const [hasPredict, setHasPredict] = useState(false)
   const [live, setLive] = useState(false)
   const [runsTick, setRunsTick] = useState(0)
+  const [preview, setPreview] = useState<NbTemplate | null>(null)
   const taRefs = useRef<(HTMLTextAreaElement | null)[]>([])
 
   const fail = (e: unknown) => setMsg({ ok: false, text: e instanceof ApiError || e instanceof Error ? e.message : 'Error desconocido' })
+  const needKey = () => setMsg({ ok: false, text: 'Escribe la API key arriba para crear, ejecutar o guardar modelos.' })
   const dirty = id !== '' && JSON.stringify({ name, cells }) !== saved
 
   const refresh = useCallback(async () => {
-    if (!apiKey) return
     try {
-      const [l, t] = await Promise.all([nbList(apiKey), nbTemplates(apiKey)])
-      setList(l)
+      const t = await nbTemplatesPublic().catch(() => (apiKey ? nbTemplates(apiKey) : []))
       setTemplates(t)
+      if (apiKey) {
+        const l = await nbList(apiKey)
+        setList(l)
+      } else {
+        setList([])
+      }
       setMsg(null)
     } catch (e) {
       fail(e)
@@ -188,6 +194,8 @@ export function NotebookPanel({ apiKey, deviceId }: { apiKey: string; deviceId: 
 
   const open = async (nid: string) => {
     if (!nid) return
+    if (!apiKey) { needKey(); return }
+    setPreview(null)
     try {
       const n = await nbGet(apiKey, nid)
       setId(n.id)
@@ -206,6 +214,7 @@ export function NotebookPanel({ apiKey, deviceId }: { apiKey: string; deviceId: 
   }
 
   const create = async (tpl: NbTemplate | null, custom?: { name: string; cells: NbCell[] }) => {
+    if (!apiKey) { needKey(); return }
     const base = custom ? custom.name : tpl ? tpl.name : 'Modelo nuevo'
     let nid = slug(base)
     const used = new Set(list.map((n) => n.id))
@@ -222,6 +231,7 @@ export function NotebookPanel({ apiKey, deviceId }: { apiKey: string; deviceId: 
 
   const importFile = async (f: File | undefined) => {
     if (!f) return
+    if (!apiKey) { needKey(); return }
     try {
       if (f.size > 1_000_000) throw new Error('El archivo pesa más de 1 MB')
       const text = await f.text()
@@ -236,6 +246,7 @@ export function NotebookPanel({ apiKey, deviceId }: { apiKey: string; deviceId: 
   }
 
   const save = async () => {
+    if (!apiKey) { needKey(); return }
     try {
       const n = await nbSave(apiKey, id, { name, device_id: deviceId || null, cells })
       setSaved(JSON.stringify({ name: n.name, cells: n.cells }))
@@ -248,6 +259,7 @@ export function NotebookPanel({ apiKey, deviceId }: { apiKey: string; deviceId: 
 
   const remove = async () => {
     if (!id || !window.confirm(`¿Borrar el cuaderno «${name}»?`)) return
+    if (!apiKey) { needKey(); return }
     try {
       await nbDelete(apiKey, id)
       setId('')
@@ -259,6 +271,7 @@ export function NotebookPanel({ apiKey, deviceId }: { apiKey: string; deviceId: 
   }
 
   const run = async (i: number): Promise<boolean> => {
+    if (!apiKey) { needKey(); return false }
     if (cells[i]?.type !== 'code') return true
     setRunning(i)
     setMsg(null)
@@ -292,6 +305,7 @@ export function NotebookPanel({ apiKey, deviceId }: { apiKey: string; deviceId: 
   }
 
   const restart = async () => {
+    if (!apiKey) { needKey(); return }
     try {
       await nbRestart(apiKey, id)
       setOuts({})
@@ -303,6 +317,7 @@ export function NotebookPanel({ apiKey, deviceId }: { apiKey: string; deviceId: 
   }
 
   const toggleLive = async () => {
+    if (!apiKey) { needKey(); return }
     try {
       await nbDeploy(apiKey, id, !live)
       setLive(!live)
@@ -312,6 +327,7 @@ export function NotebookPanel({ apiKey, deviceId }: { apiKey: string; deviceId: 
     }
   }
   const probe = async () => {
+    if (!apiKey) { needKey(); return }
     try {
       setPred(await nbPredict(apiKey, id))
     } catch (e) {
@@ -343,36 +359,36 @@ export function NotebookPanel({ apiKey, deviceId }: { apiKey: string; deviceId: 
     }
   }
 
-  if (!apiKey)
-    return (
-      <div className="adm-empty">
-        <h3>Modelos de predicción</h3>
-        <p>Escribe la <b>API key</b> en la parte superior para abrir los cuadernos.</p>
-      </div>
-    )
 
   return (
     <section className="nb">
       <div className="nb-bar">
         <label className="adm-f">
           Cuaderno
-          <select value={id} onChange={(e) => void open(e.target.value)}>
-            <option value="">{list.length ? 'Elige uno…' : 'Aún no tienes cuadernos'}</option>
+          <select value={id} onChange={(e) => void open(e.target.value)} disabled={!apiKey}>
+            <option value="">{!apiKey ? 'Escribe la API key para ver tus cuadernos' : list.length ? 'Elige uno…' : 'Aún no tienes cuadernos'}</option>
             {list.map((n) => <option key={n.id} value={n.id}>{n.name}</option>)}
           </select>
         </label>
         <label className="adm-f">
-          Nuevo desde plantilla
-          <select value="" onChange={(e) => { const t = templates.find((x) => x.id === e.target.value); if (e.target.value) void create(t ?? null) }}>
-            <option value="">+ Crear…</option>
-            <option value="__blank">En blanco</option>
+          {apiKey ? 'Nuevo desde plantilla' : 'Ver modelo / plantilla'}
+          <select value="" onChange={(e) => {
+            if (e.target.value === '__blank') { if (apiKey) void create(null); else needKey(); return }
+            const t = templates.find((x) => x.id === e.target.value)
+            if (!t) return
+            if (apiKey) void create(t); else { setPreview(t); setMsg(null) }
+          }}>
+            <option value="">{apiKey ? '+ Crear…' : 'Selecciona un modelo…'}</option>
+            {apiKey && <option value="__blank">En blanco</option>}
             {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
         </label>
-        <label className="adm-f">
-          Importar .py / .ipynb
-          <input type="file" accept=".py,.ipynb" onChange={(e) => { void importFile(e.target.files?.[0]); e.target.value = '' }} />
-        </label>
+        {apiKey && (
+          <label className="adm-f">
+            Importar .py / .ipynb
+            <input type="file" accept=".py,.ipynb" onChange={(e) => { void importFile(e.target.files?.[0]); e.target.value = '' }} />
+          </label>
+        )}
         {id && (
           <>
             <label className="adm-f grow">Nombre<input value={name} onChange={(e) => setName(e.target.value)} /></label>
@@ -382,19 +398,45 @@ export function NotebookPanel({ apiKey, deviceId }: { apiKey: string; deviceId: 
             <button className="btn danger" onClick={remove}>Borrar</button>
           </>
         )}
+        {preview && !id && (
+          <>
+            <span className="adm-f grow"><b>{preview.name}</b> (vista previa)</span>
+            {apiKey && <button className="btn primary" onClick={() => void create(preview)}>Crear cuaderno</button>}
+            <button className="btn" onClick={() => setPreview(null)}>Volver</button>
+          </>
+        )}
       </div>
       {msg && <div className={'adm-msg ' + (msg.ok ? 'ok' : 'bad')} role="status">{msg.text}</div>}
+      {!apiKey && !id && <div className="adm-msg ok" role="status">Modelos básicos disponibles sin API key (vista). Para <b>crear, ejecutar, guardar o activar</b> un modelo, escribe la <b>API key</b> arriba.</div>}
 
-      {!id && (
+      {!id && !preview && (
         <div className="adm-empty">
-          <h3>Tu laboratorio de modelos</h3>
-          <p>Un cuaderno es como Colab: celdas de Python que comparten variables, con tablas, gráficas y la curva de aprendizaje. Tus datos reales llegan con <code>simon.data()</code>.</p>
-          <ul>
-            <li><code>simon.log(epoca, perdida=…)</code> dibuja cómo aprende el modelo.</li>
-            <li><code>@simon.register def predict(row): …</code> deja el modelo listo para usarse con la última lectura.</li>
-            <li><code>simon.alert('warn', 'mensaje')</code> emite alertas desde el modelo.</li>
-          </ul>
-          <p>Crea uno con la lista «Nuevo desde plantilla».</p>
+          <h3>Modelos disponibles</h3>
+          <p>Modelos básicos listos para usar (p. ej. <b>KNN</b> y <b>regresión lineal</b>). Selecciona uno en «Ver modelo / plantilla» para ver su código{apiKey ? ', o créalo como cuaderno' : ''}. {!apiKey && <>Para ejecutarlo/guardarlo, escribe la <b>API key</b> arriba.</>}</p>
+          <div className="nb-templates">
+            {templates.map((t) => (
+              <button key={t.id} className="nb-tpl" type="button" onClick={() => { if (apiKey) void create(t); else setPreview(t) }}>
+                <b>{t.name}</b>
+                <small>{t.cells.find((c) => c.type === 'text')?.source?.slice(0, 120) || 'Modelo de cuaderno'}</small>
+              </button>
+            ))}
+            {!templates.length && <p className="muted">Cargando modelos…</p>}
+          </div>
+          <p className="muted" style={{ marginTop: 8 }}><code>simon.data()</code> trae tus lecturas reales · <code>simon.log()</code> curva de aprendizaje · <code>@simon.register</code> activa <code>predict(row)</code>.</p>
+        </div>
+      )}
+
+      {!id && preview && (
+        <div className="nb-layout">
+          <div className="nb-cells">
+            {preview.cells.map((c, i) => (
+              <div key={i} className={'nb-cell ' + c.type}>
+                <div className="nb-gutter"><span className="nb-note-ico" aria-hidden="true">{c.type === 'code' ? '▶' : '¶'}</span></div>
+                <div className="nb-body"><pre className={c.type === 'code' ? 'res' : ''}>{c.source}</pre></div>
+              </div>
+            ))}
+            <small className="muted">Vista previa (solo lectura). {apiKey ? 'Pulsa «Crear cuaderno» para ejecutarlo.' : 'Escribe la API key arriba para crear y ejecutar este modelo.'}</small>
+          </div>
         </div>
       )}
 

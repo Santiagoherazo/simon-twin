@@ -1,8 +1,8 @@
-name: simon-twin
+﻿name: simon-twin
 
 # Puertos publicados solo en 127.0.0.1 (desarrollo). Para que un ESP32 real en tu
 # red local se conecte, cambia "127.0.0.1:1883:1883" por "1883:1883" y usa TLS
-# (ver README, sección Seguridad).
+# (ver README, secciÃ³n Seguridad).
 
 services:
   mosquitto:
@@ -44,7 +44,7 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    # Solo caché (se puede perder): sin persistencia, memoria acotada y expulsión de lo menos usado
+    # Solo cachÃ© (se puede perder): sin persistencia, memoria acotada y expulsiÃ³n de lo menos usado
     command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "64mb", "--maxmemory-policy", "allkeys-lru"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -64,7 +64,7 @@ services:
         condition: service_healthy
     environment:
       REDIS_URL: redis://redis:6379/0
-      # Respaldo en Supabase (opcional; vacío = desactivado). Ver docs/respaldo-supabase.md
+      # Respaldo en Supabase (opcional; vacÃ­o = desactivado). Ver docs/respaldo-supabase.md
       SUPABASE_DB_URL: ${SUPABASE_DB_URL:-}
       DATABASE_URL: postgresql://simon:${POSTGRES_PASSWORD}@timescaledb:5432/simon
       MQTT_HOST: mosquitto
@@ -75,8 +75,8 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
 
-  # Dispositivo virtual: publica telemetría de suelo simulada, igual que el ESP32.
-  # Para reiniciar su historia: docker compose down -v (borra también la base de datos).
+  # Dispositivo virtual: publica telemetrÃ­a de suelo simulada, igual que el ESP32.
+  # Para reiniciar su historia: docker compose down -v (borra tambiÃ©n la base de datos).
   simulator:
     build: ./simulator
     restart: unless-stopped
@@ -90,8 +90,8 @@ services:
       MQTT_PORT: "1883"
       DEVICE_ID: sim-01
       MQTT_PASSWORD: ${MQTT_SIM_PASSWORD}
-      SIM_INTERVAL_SECONDS: ${SIM_INTERVAL_SECONDS:-5}   # cada cuánto publica en tiempo real
-      SIM_BACKFILL_DAYS: ${SIM_BACKFILL_DAYS:-14}        # histórico que publica la primera vez
+      SIM_INTERVAL_SECONDS: ${SIM_INTERVAL_SECONDS:-5}   # cada cuÃ¡nto publica en tiempo real
+      SIM_BACKFILL_DAYS: ${SIM_BACKFILL_DAYS:-14}        # histÃ³rico que publica la primera vez
       SIM_AUTO_IRRIGATE_LIVE: ${SIM_AUTO_IRRIGATE_LIVE:-false}
     volumes:
       - sim_data:/data
@@ -109,7 +109,7 @@ services:
     depends_on:
       - backend
     ports:
-      - "127.0.0.1:8080:80"
+      - "127.0.0.1:8085:80"
 
   # Opcional: docker compose --profile grafana up -d
   grafana:

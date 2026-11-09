@@ -216,6 +216,7 @@ const nb = <T>(path: string, apiKey: string, method = 'GET', body?: unknown) =>
 
 export const nbList = (k: string) => nb<NbMeta[]>('notebooks', k)
 export const nbTemplates = (k: string) => nb<NbTemplate[]>('notebook-templates', k)
+export const nbTemplatesPublic = () => request<NbTemplate[]>('/notebook-templates')
 export const nbGet = (k: string, id: string) => nb<Notebook>(`notebooks/${id}`, k)
 export const nbSave = (k: string, id: string, b: { name: string; device_id: string | null; cells: NbCell[] }) => nb<Notebook>(`notebooks/${id}`, k, 'PUT', b)
 export const nbDelete = (k: string, id: string) => nb<{ ok: boolean }>(`notebooks/${id}`, k, 'DELETE')
