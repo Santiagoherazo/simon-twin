@@ -172,7 +172,6 @@ export function NotebookPanel({ apiKey, deviceId }: { apiKey: string; deviceId: 
   const dirty = id !== '' && JSON.stringify({ name, cells }) !== saved
 
   const refresh = useCallback(async () => {
-    if (!apiKey) return
     try {
       const [l, t] = await Promise.all([nbList(apiKey), nbTemplates(apiKey)])
       setList(l)
@@ -394,7 +393,12 @@ export function NotebookPanel({ apiKey, deviceId }: { apiKey: string; deviceId: 
             <li><code>@simon.register def predict(row): …</code> deja el modelo listo para usarse con la última lectura.</li>
             <li><code>simon.alert('warn', 'mensaje')</code> emite alertas desde el modelo.</li>
           </ul>
-          <p>Crea uno con la lista «Nuevo desde plantilla».</p>
+          <p>Empieza con una plantilla (se crea y se abre sola):</p>
+          <div className="nb-tpls">
+            {templates.map((t) => <button key={t.id} className="btn primary" onClick={() => void create(t)}>{t.name}</button>)}
+            <button className="btn" onClick={() => void create(null)}>Cuaderno en blanco</button>
+          </div>
+          {!templates.length && !msg && <p className="muted">Cargando plantillas…</p>}
         </div>
       )}
 

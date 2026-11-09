@@ -28,6 +28,7 @@ Si el panel configura un sensor cuyo driver no está compilado, el ESP32 lo omit
 - El estado del gemelo (`/devices/<id>/state`) trae `custom` (variables e indicadores con su estado ok/bajo/alto), `actuators` y `config_version`.
 
 ## Cuadernos y modelo de cultivo
+La pestaña Modelos se abre **sin API key** (`MODELS_REQUIRE_KEY=false` por defecto). Si escribes una clave arriba se envía igual y debe ser válida; con `MODELS_REQUIRE_KEY=true` pasa a ser obligatoria.
 Pestaña **Modelos**: cuadernos tipo Colab (celdas, variables persistentes, `simon.data()`, `simon.log()`, `simon.alert()`, `@simon.register`). Plantillas: explorar, aprender-humedad, tipo-cultivo. Detalles del motor de cultivo en `modelo-cultivo.md`.
 
 ### Importar y comparar modelos
