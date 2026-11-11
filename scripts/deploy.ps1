@@ -104,9 +104,32 @@ try {
   & docker compose build backend web 2>&1 | ForEach-Object { Log $_ }
   if ($LASTEXITCODE -ne 0) { Fail "docker compose build falló ($LASTEXITCODE)" }
 
+  # Compose no siempre recrea el contenedor cuando se reconstruye la misma etiqueta:
+  # comparamos la imagen en ejecución con la recién construida y forzamos solo si difiere.
+  $stale = @()
+  foreach ($svc in @('backend', 'web')) {
+    $cid = (& docker compose ps -q $svc 2>$null | Select-Object -First 1)
+    if (-not $cid) { $stale += $svc; continue }
+    $runningImg = ((& docker inspect $cid --format '{{.Image}}' 2>$null) | Select-Object -First 1)
+    $tag = ((& docker inspect $cid --format '{{.Config.Image}}' 2>$null) | Select-Object -First 1)
+    $builtImg = if ($tag) { ((& docker image inspect $tag --format '{{.Id}}' 2>$null) | Select-Object -First 1) } else { $null }
+    if ($runningImg -and $builtImg -and ($runningImg.Trim() -eq $builtImg.Trim())) {
+      Log "Servicio ${svc}: ya ejecuta la imagen recién construida."
+    } else {
+      Log "Servicio ${svc}: imagen desactualizada, se recreará el contenedor."
+      $stale += $svc
+    }
+  }
+
   Log "docker compose up -d"
   & docker compose up -d 2>&1 | ForEach-Object { Log $_ }
   if ($LASTEXITCODE -ne 0) { Fail "docker compose up falló ($LASTEXITCODE)" }
+
+  if ($stale.Count -gt 0) {
+    Log ("docker compose up -d --force-recreate --no-deps " + ($stale -join ' '))
+    & docker compose up -d --force-recreate --no-deps @stale 2>&1 | ForEach-Object { Log $_ }
+    if ($LASTEXITCODE -ne 0) { Fail "No se pudieron recrear los servicios: $($stale -join ', ') ($LASTEXITCODE)" }
+  }
 
   # -------------------------------------------------------------------------
   # 3. Esperar a que los servicios estén listos
@@ -156,6 +179,24 @@ try {
   } else {
     $checks += @{ name = 'Contenedor web'; ok = $false; detail = 'no encontrado' }
   }
+
+  # Imagen en ejecución == imagen construida (evita desplegar código viejo por caché de compose)
+  $imgOk = $true
+  $imgDetail = @()
+  foreach ($svc in @('backend', 'web')) {
+    $cid = (& docker compose ps -q $svc 2>$null | Select-Object -First 1)
+    if (-not $cid) { $imgOk = $false; $imgDetail += "$svc=sin-contenedor"; continue }
+    $runningImg = ((& docker inspect $cid --format '{{.Image}}' 2>$null) | Select-Object -First 1)
+    $tag = ((& docker inspect $cid --format '{{.Config.Image}}' 2>$null) | Select-Object -First 1)
+    $builtImg = ((& docker image inspect $tag --format '{{.Id}}' 2>$null) | Select-Object -First 1)
+    if ($runningImg -and $builtImg -and ($runningImg.Trim() -eq $builtImg.Trim())) {
+      $imgDetail += "$svc=al-dia"
+    } else {
+      $imgOk = $false
+      $imgDetail += "$svc=desactualizado"
+    }
+  }
+  $checks += @{ name = 'Imágenes al día (backend/web)'; ok = $imgOk; detail = ($imgDetail -join ' ') }
 
   $failed = @($checks | Where-Object { -not $_.ok })
   foreach ($c in $checks) { Log ("CHECK {0} [{1}] {2}" -f $c.name, $c.detail, $(if ($c.ok) { 'OK' } else { 'FALLO' })) }
