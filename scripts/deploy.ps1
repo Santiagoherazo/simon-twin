@@ -151,7 +151,7 @@ try {
 
   $webId = (& docker compose ps -q web 2>$null | Select-Object -First 1)
   if ($webId) {
-    $bundle = (& docker exec $webId sh -c "grep -l 'Modelos disponibles' /usr/share/nginx/html/assets/index-*.js 2>/dev/null | head -1" 2>$null)
+    $bundle = (& docker exec $webId sh -c "grep -l 'Modelos disponibles' /usr/share/nginx/html/assets/*.js 2>/dev/null | head -1" 2>$null)
     $checks += @{ name = 'Bundle web (Modelos sin API key)'; ok = [bool]$bundle; detail = $(if ($bundle) { 'ok' } else { 'no encontrado' }) }
   } else {
     $checks += @{ name = 'Contenedor web'; ok = $false; detail = 'no encontrado' }
