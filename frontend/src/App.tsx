@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError, getCrops, getDevices, getSoils, simulate } from './api'
-import { AdminPanel } from './components/AdminPanel'
 import { Header, type Mode } from './components/Header'
 import { LivePanel } from './components/LivePanel'
 import { MobileShell } from './components/MobileShell'
@@ -14,6 +13,9 @@ import { reducedMotion } from './scene/smooth'
 import { Scene } from './scene/Scene'
 import type { CropInfo, DeviceInfo, SimRequest, SimResponse, SoilCatalogItem } from './types'
 import { EMPTY_VISUAL, setVisual, visualFromLive, visualFromSim } from './visual'
+
+// El panel de configuración (con su editor de código) se descarga solo al abrirlo: el gemelo carga igual de rápido.
+const AdminPanel = lazy(() => import('./components/AdminPanel').then((m) => ({ default: m.AdminPanel })))
 
 const SIM_PLAY_SECONDS = 20
 
@@ -191,7 +193,7 @@ function Twin() {
     if (m === 'live') setPlaying(false)
   }
 
-  // Atajos de teclado (escritorio): L en vivo · S simulación · G gráficos · Espacio reproducir · Esc quitar foco
+  // Atajos de teclado (escritorio): L en vivo · S simulación · G gráficos · , configuración · Espacio reproducir
   useEffect(() => {
     if (narrow) return
     const f = (e: KeyboardEvent) => {
@@ -201,6 +203,7 @@ function Twin() {
       const k = e.key.toLowerCase()
       if (k === 'l') changeMode('live')
       else if (k === 's') setMode('sim')
+      else if (k === ',') location.hash = '#/admin'
       else if (k === 'g') setQuality(QUALITY_ORDER[(QUALITY_ORDER.indexOf(quality) + 1) % QUALITY_ORDER.length])
       else if (k === ' ' && mode === 'sim' && sim) {
         e.preventDefault()
@@ -244,7 +247,7 @@ function Twin() {
             {mode === 'live' ? <LivePanel deviceId={deviceId} live={live} /> : <div className="card sim-card"><SimPanel {...simProps} /></div>}
           </aside>
           <div className="keys" aria-label="Atajos de teclado">
-            <kbd>L</kbd> en vivo <kbd>S</kbd> simulación <kbd>G</kbd> gráficos <kbd>␣</kbd> reproducir · clic en la maceta, la planta o el tanque
+            <kbd>L</kbd> en vivo <kbd>S</kbd> simulación <kbd>G</kbd> gráficos <kbd>,</kbd> configuración <kbd>␣</kbd> reproducir · clic en la maceta, la planta o el tanque
           </div>
         </>
       )}
@@ -262,5 +265,11 @@ export default function App() {
     window.addEventListener('hashchange', f); window.addEventListener('popstate', f)
     return () => window.removeEventListener('hashchange', f); window.removeEventListener('popstate', f)
   }, [])
-  return config ? <AdminPanel /> : <Twin />
+  return config ? (
+    <Suspense fallback={<div className="admin-boot" role="status">Abriendo configuración…</div>}>
+      <AdminPanel />
+    </Suspense>
+  ) : (
+    <Twin />
+  )
 }

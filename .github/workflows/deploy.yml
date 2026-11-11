@@ -1,0 +1,41 @@
+name: Deploy Simon Twin
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-simon-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy a producción
+    runs-on: [self-hosted, Windows, X64, simon-prod]
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Desplegar (build + up + health checks)
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          powershell -NoProfile -ExecutionPolicy Bypass -File "${{ github.workspace }}\scripts\deploy.ps1" -DeployRoot "C:\Users\Santiago\Documents\simon" -Branch "main"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Subir log si falla
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-log-${{ github.run_number }}
+          path: C:\Users\Santiago\Documents\simon\deploy-logs\deploy-*.log
+          retention-days: 14
+          if-no-files-found: ignore

@@ -8,6 +8,7 @@ import { SimPanel, type SimPanelProps } from './SimPanel'
 import type { SimRequest, TwinState } from '../types'
 import { pump } from '../api'
 import { gyro, useXr, xrRequest, setXr, detectAr } from '../xr'
+import { Icon } from './admin/ui'
 
 /** Frase en lenguaje llano con lo que más importa del cultivo. */
 export function statusPhrase(s: TwinState | null): { text: string; tone: 'ok' | 'warn' | 'bad' | 'idle' } {
@@ -193,6 +194,9 @@ export function MobileShell({ live, mode, onMode, deviceId, sim, quality, onQual
         <button type="button" className="m-glass m-icon" aria-pressed={clean} onClick={() => setClean((c) => !c)} aria-label="Vista limpia">
           {clean ? 'Mostrar' : 'Ocultar'}
         </button>
+        <a className="m-glass m-icon m-gear" href="#/admin" aria-label="Configuración">
+          <Icon name="gear" size={20} />
+        </a>
       </div>
 
       {!clean && (

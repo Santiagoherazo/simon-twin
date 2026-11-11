@@ -2,6 +2,7 @@ import { fmtAge } from '../format'
 import type { LiveData } from '../live'
 import { QUALITY_LABEL, QUALITY_ORDER, type Quality } from '../scene/quality'
 import type { DeviceInfo } from '../types'
+import { Icon } from './admin/ui'
 
 export type Mode = 'live' | 'sim'
 
@@ -68,6 +69,9 @@ export function Header({ devices, deviceId, onDevice, mode, onMode, live, ageS, 
           Simulación
         </button>
       </div>
+      <a className="gear" href="#/admin" aria-label="Configuración" title="Configuración (,)">
+        <Icon name="gear" size={20} />
+      </a>
     </header>
   )
 }

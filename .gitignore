@@ -4,3 +4,8 @@ __pycache__/
 .venv/
 .env.*
 !.env.example
+
+# artefactos locales de despliegue/build
+deploy-logs/
+web-build*.log
+web-build*.err
