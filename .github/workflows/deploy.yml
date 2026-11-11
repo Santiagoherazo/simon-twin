@@ -25,7 +25,7 @@ jobs:
           fetch-depth: 1
 
       - name: Desplegar (build + up + health checks)
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           $ErrorActionPreference = 'Stop'
           powershell -NoProfile -ExecutionPolicy Bypass -File "${{ github.workspace }}\scripts\deploy.ps1" -DeployRoot "C:\Users\Santiago\Documents\simon" -Branch "main"
