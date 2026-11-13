@@ -33,6 +33,56 @@
 
 #define FW_VERSION "2.1"
 
+// >>> LOGIC (sensores, actuadores y configuración dinámica; se prueba en C++ de escritorio)
+// === CONFIGURACIÓN DINÁMICA ===
+// La lista de sensores/actuadores NO está en el sketch: se descarga de GET /devices/esp32-01/config, se guarda en
+// flash (/config.json) y se aplica sin reiniciar. Lo que no tenga driver compilado (DHT, DS18B20) se omite con aviso.
+const int MAXS = 24, MAXA = 8, HN = 240;
+const int PAYLOAD_MAX = 360;                  // bytes del JSON de telemetría (cabe en una posición de la cola)
+enum Drv : uint8_t { D_ANALOG, D_DHT_T, D_DHT_H, D_DS18B20, D_HCSR04, D_SIM };
+enum ActDrv : uint8_t { A_RELAY, A_SERVO };
+
+struct SensorCfg { char key[33]; char label[41]; char unit[13]; uint8_t drv; int16_t pin; int16_t param; float scale, offset, simMin, simMax; };
+struct ActCfg {
+  char key[33]; char label[41]; uint8_t drv; bool activeHigh; int16_t pin; int16_t angOn, angOff; uint16_t maxS; char autoVar[33];
+  bool hasBelow, hasAbove, hasOff; float onBelow, onAbove, offAt; uint16_t autoS; uint32_t cooldownS;
+};
+struct ActState { bool on; bool autoRun; bool hold; unsigned long until; unsigned long endedAt; };   // hold: el servo se queda en su posición hasta que lo cierren
+
+SensorCfg sens[MAXS]; int nSens = 0;
+ActCfg acts[MAXA]; ActState actSt[MAXA]; int nActs = 0;
+volatile int  actReq[MAXA];
+volatile bool actStopReq[MAXA];
+int cfgVersion = 0;
+unsigned long reportMs = 10000;
+float curVal[MAXS];
+SemaphoreHandle_t cfgLock;
+
+// Pantalla OLED: qué variables rota y cada cuánto (viene del backend dentro de la configuración).
+struct DispCfg { bool enabled; uint8_t addr; uint8_t rotateS; uint8_t nShow; char show[8][33]; };
+DispCfg disp = { false, 0x3C, 4, 0, {} };
+#ifdef USE_SERVO
+Servo servos[MAXA];
+#endif
+
+// Configuración de fábrica (si no hay una guardada ni red para descargarla): el hardware confirmado, con los pines del montaje.
+const char DEFAULT_CFG[] PROGMEM = R"CFG({"version":0,"report_interval_s":10,"sensors":[
+{"key":"air_t","label":"Temp. aire","unit":"C","driver":"dht_t","pin":4,"param":11},
+{"key":"air_rh","label":"Humedad aire","unit":"%","driver":"dht_h","pin":4,"param":11},
+{"key":"vwc_raw","label":"Humedad suelo","driver":"analog","pin":36},
+{"key":"soil_t","label":"Temp. suelo","unit":"C","driver":"ds18b20","pin":18},
+{"key":"ldr_nw","label":"Luz NO","unit":"%","driver":"analog","pin":32,"scale":0.02442},
+{"key":"ldr_ne","label":"Luz NE","unit":"%","driver":"analog","pin":33,"scale":0.02442},
+{"key":"ldr_sw","label":"Luz SO","unit":"%","driver":"analog","pin":34,"scale":0.02442},
+{"key":"ldr_se","label":"Luz SE","unit":"%","driver":"analog","pin":35,"scale":0.02442},
+{"key":"tank_cm","label":"Dist. agua","unit":"cm","driver":"hcsr04","pin":23,"param":19}],
+"actuators":[
+{"key":"pump","label":"Mini bomba","driver":"relay","pin":26,"max_seconds":120},
+{"key":"light","label":"Luz externa","driver":"relay","pin":27,"max_seconds":3600},
+{"key":"servo","label":"Luz indirecta","driver":"servo","pin":13,"angle_on":90,"angle_off":0,"max_seconds":30}],
+"display":{"enabled":true,"address":60,"rotate_s":4,"show":["air_t","air_rh","vwc_raw","soil_t","tank_cm","pump"]}})CFG";
+
+
 // === CONFIGURACIÓN WIFI ===
 const char* ssid     = "vivo Y33s";
 const char* password = "12345678";
@@ -134,54 +184,7 @@ bool fetchConfig() {
   return success;
 }
 
-// >>> LOGIC (sensores, actuadores y configuración dinámica; se prueba en C++ de escritorio)
-// === CONFIGURACIÓN DINÁMICA ===
-// La lista de sensores/actuadores NO está en el sketch: se descarga de GET /devices/esp32-01/config, se guarda en
-// flash (/config.json) y se aplica sin reiniciar. Lo que no tenga driver compilado (DHT, DS18B20) se omite con aviso.
-const int MAXS = 24, MAXA = 8, HN = 240;
-const int PAYLOAD_MAX = 360;                  // bytes del JSON de telemetría (cabe en una posición de la cola)
-enum Drv : uint8_t { D_ANALOG, D_DHT_T, D_DHT_H, D_DS18B20, D_HCSR04, D_SIM };
-enum ActDrv : uint8_t { A_RELAY, A_SERVO };
 
-struct SensorCfg { char key[33]; char label[41]; char unit[13]; uint8_t drv; int16_t pin; int16_t param; float scale, offset, simMin, simMax; };
-struct ActCfg {
-  char key[33]; char label[41]; uint8_t drv; bool activeHigh; int16_t pin; int16_t angOn, angOff; uint16_t maxS; char autoVar[33];
-  bool hasBelow, hasAbove, hasOff; float onBelow, onAbove, offAt; uint16_t autoS; uint32_t cooldownS;
-};
-struct ActState { bool on; bool autoRun; bool hold; unsigned long until; unsigned long endedAt; };   // hold: el servo se queda en su posición hasta que lo cierren
-
-SensorCfg sens[MAXS]; int nSens = 0;
-ActCfg acts[MAXA]; ActState actSt[MAXA]; int nActs = 0;
-volatile int  actReq[MAXA];
-volatile bool actStopReq[MAXA];
-int cfgVersion = 0;
-unsigned long reportMs = 10000;
-float curVal[MAXS];
-SemaphoreHandle_t cfgLock;
-
-// Pantalla OLED: qué variables rota y cada cuánto (viene del backend dentro de la configuración).
-struct DispCfg { bool enabled; uint8_t addr; uint8_t rotateS; uint8_t nShow; char show[8][33]; };
-DispCfg disp = { false, 0x3C, 4, 0, {} };
-#ifdef USE_SERVO
-Servo servos[MAXA];
-#endif
-
-// Configuración de fábrica (si no hay una guardada ni red para descargarla): el hardware confirmado, con los pines del montaje.
-const char DEFAULT_CFG[] PROGMEM = R"CFG({"version":0,"report_interval_s":10,"sensors":[
-{"key":"air_t","label":"Temp. aire","unit":"C","driver":"dht_t","pin":4,"param":11},
-{"key":"air_rh","label":"Humedad aire","unit":"%","driver":"dht_h","pin":4,"param":11},
-{"key":"vwc_raw","label":"Humedad suelo","driver":"analog","pin":36},
-{"key":"soil_t","label":"Temp. suelo","unit":"C","driver":"ds18b20","pin":18},
-{"key":"ldr_nw","label":"Luz NO","unit":"%","driver":"analog","pin":32,"scale":0.02442},
-{"key":"ldr_ne","label":"Luz NE","unit":"%","driver":"analog","pin":33,"scale":0.02442},
-{"key":"ldr_sw","label":"Luz SO","unit":"%","driver":"analog","pin":34,"scale":0.02442},
-{"key":"ldr_se","label":"Luz SE","unit":"%","driver":"analog","pin":35,"scale":0.02442},
-{"key":"tank_cm","label":"Dist. agua","unit":"cm","driver":"hcsr04","pin":23,"param":19}],
-"actuators":[
-{"key":"pump","label":"Mini bomba","driver":"relay","pin":26,"max_seconds":120},
-{"key":"light","label":"Luz externa","driver":"relay","pin":27,"max_seconds":3600},
-{"key":"servo","label":"Luz indirecta","driver":"servo","pin":13,"angle_on":90,"angle_off":0,"max_seconds":30}],
-"display":{"enabled":true,"address":60,"rotate_s":4,"show":["air_t","air_rh","vwc_raw","soil_t","tank_cm","pump"]}})CFG";
 
 int drvFromName(const char* n) {
   if (!strcmp(n, "analog")) return D_ANALOG;
