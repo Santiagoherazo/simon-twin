@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError, getCrops, getDevices, getSoils, simulate } from './api'
 import { Header, type Mode } from './components/Header'
+import { ActuatorDock } from './components/ActuatorDock'
 import { LivePanel } from './components/LivePanel'
 import { MobileShell } from './components/MobileShell'
 import { SimPanel } from './components/SimPanel'
@@ -246,6 +247,7 @@ function Twin() {
           <aside className="panel" aria-label={mode === 'live' ? 'Estado en vivo' : 'Simulación'}>
             {mode === 'live' ? <LivePanel deviceId={deviceId} live={live} /> : <div className="card sim-card"><SimPanel {...simProps} /></div>}
           </aside>
+          {mode === 'live' && <ActuatorDock deviceId={deviceId} online={!!live.state?.online} actuators={live.state?.actuators} />}
           <div className="keys" aria-label="Atajos de teclado">
             <kbd>L</kbd> en vivo <kbd>S</kbd> simulación <kbd>G</kbd> gráficos <kbd>,</kbd> configuración <kbd>␣</kbd> reproducir · clic en la maceta, la planta o el tanque
           </div>

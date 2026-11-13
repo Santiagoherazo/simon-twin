@@ -2,30 +2,54 @@ import { useMemo, useState, type ReactNode } from 'react'
 import type { ActuatorCfg, DeviceConfigFull, DriverInfo, IndicatorCfg, SensorCfg, SensorDriver } from '../../types'
 import { cleanKey, Field, Icon, num, Section, Switch, uniqueKey, val } from './ui'
 
-export type Cfg = Pick<DeviceConfigFull, 'report_interval_s' | 'sensors' | 'actuators' | 'indicators'>
+export type Cfg = Pick<DeviceConfigFull, 'report_interval_s' | 'sensors' | 'actuators' | 'indicators' | 'display'>
 
 const mkSensor = (p: Partial<SensorCfg> & Pick<SensorCfg, 'key' | 'label' | 'driver'>): SensorCfg => ({
   pin: null, param: null, unit: '', scale: 1, offset: 0, sim_min: null, sim_max: null, min_ok: null, max_ok: null, enabled: true, ...p,
 })
+const mkInd = (p: Partial<IndicatorCfg> & Pick<IndicatorCfg, 'key' | 'label' | 'formula'>): IndicatorCfg => ({
+  unit: '', min_ok: null, max_ok: null, enabled: true, ...p,
+})
+const mkAct = (p: Partial<ActuatorCfg> & Pick<ActuatorCfg, 'key' | 'label'>): ActuatorCfg => ({
+  driver: 'relay', pin: null, active_high: true, angle_on: 90, angle_off: 0, max_seconds: 120,
+  auto_variable: null, auto_on_below: null, auto_on_above: null, auto_off_at: null, auto_seconds: 30, cooldown_s: 600, enabled: true, ...p,
+})
+const ldr = (key: string, label: string, pin: number) =>
+  mkSensor({ key, label, driver: 'analog', pin, unit: '%', scale: 100 / 4095, min_ok: 15 })
 
-/** Plantillas para agregar sensores sin escribir todo a mano. */
-const PRESETS: { id: string; label: string; hint: string; make: () => SensorCfg[] }[] = [
-  { id: 'soil', label: 'Humedad del suelo', hint: 'Capacitivo, entrada analógica', make: () => [mkSensor({ key: 'vwc_raw', label: 'Humedad suelo (ADC)', driver: 'analog', pin: 33 })] },
-  { id: 'dht', label: 'Temperatura y humedad del aire', hint: 'DHT22 · crea 2 variables', make: () => [
-    mkSensor({ key: 'air_t', label: 'Temp. aire', driver: 'dht_t', pin: 4, param: 22, unit: '°C', min_ok: 15, max_ok: 32 }),
-    mkSensor({ key: 'air_rh', label: 'Humedad aire', driver: 'dht_h', pin: 4, param: 22, unit: '%', min_ok: 40, max_ok: 85 }),
-  ] },
-  { id: 'ds', label: 'Temperatura del suelo', hint: 'DS18B20', make: () => [mkSensor({ key: 'soil_t', label: 'Temp. suelo', driver: 'ds18b20', pin: 5, unit: '°C', min_ok: 15, max_ok: 28 })] },
-  { id: 'lux', label: 'Luz', hint: 'BH1750 por I2C', make: () => [mkSensor({ key: 'lux', label: 'Luz', driver: 'bh1750', param: 35, unit: 'lx' })] },
-  { id: 'ldr4', label: 'Matriz de luz', hint: '4 fotorresistencias en las esquinas', make: () => [
-    mkSensor({ key: 'ldr_nw', label: 'Luz esquina NO', driver: 'analog', pin: 32, unit: '%', scale: 100 / 4095, min_ok: 15 }),
-    mkSensor({ key: 'ldr_ne', label: 'Luz esquina NE', driver: 'analog', pin: 33, unit: '%', scale: 100 / 4095, min_ok: 15 }),
-    mkSensor({ key: 'ldr_sw', label: 'Luz esquina SO', driver: 'analog', pin: 34, unit: '%', scale: 100 / 4095, min_ok: 15 }),
-    mkSensor({ key: 'ldr_se', label: 'Luz esquina SE', driver: 'analog', pin: 35, unit: '%', scale: 100 / 4095, min_ok: 15 }),
-  ] },
-  { id: 'tank', label: 'Nivel de tanque', hint: 'Entrada digital', make: () => [mkSensor({ key: 'tank_ok', label: 'Tanque con agua', driver: 'digital', pin: 17 })] },
-  { id: 'custom', label: 'Personalizado', hint: 'Analógico, p. ej. CO₂', make: () => [mkSensor({ key: 'variable', label: 'Nueva variable', driver: 'analog', pin: 32 })] },
-  { id: 'sim', label: 'Simulado', hint: 'Sin hardware, valores de prueba', make: () => [mkSensor({ key: 'simulada', label: 'Simulada', driver: 'simulated', sim_min: 0, sim_max: 100 })] },
+interface Preset<T> { id: string; label: string; hint: string; make: () => T }
+interface SensorPreset { sensors: SensorCfg[]; indicators?: IndicatorCfg[] }
+
+/** Los únicos sensores del equipo. Cada plantilla trae los pines del montaje y, si hace falta, sus indicadores. */
+const SENSOR_PRESETS: Preset<SensorPreset>[] = [
+  { id: 'dht11', label: 'Temperatura y humedad del aire', hint: 'DHT11 · crea 2 variables · pin 4', make: () => ({ sensors: [
+    mkSensor({ key: 'air_t', label: 'Temp. aire', driver: 'dht_t', pin: 4, param: 11, unit: '°C', min_ok: 15, max_ok: 32 }),
+    mkSensor({ key: 'air_rh', label: 'Humedad aire', driver: 'dht_h', pin: 4, param: 11, unit: '%', min_ok: 40, max_ok: 85 }),
+  ] }) },
+  { id: 'soil', label: 'Humedad del suelo', hint: 'Capacitivo · entrada analógica · pin 36', make: () => ({ sensors: [
+    mkSensor({ key: 'vwc_raw', label: 'Humedad suelo (ADC)', driver: 'analog', pin: 36 }),
+  ] }) },
+  { id: 'ds18b20', label: 'Temperatura del suelo', hint: 'DS18B20 enterrado · pin 18', make: () => ({ sensors: [
+    mkSensor({ key: 'soil_t', label: 'Temp. suelo', driver: 'ds18b20', pin: 18, unit: '°C', min_ok: 15, max_ok: 28 }),
+  ] }) },
+  { id: 'ldr4', label: 'Luz: 4 LDR en las esquinas', hint: 'Pines 32 · 33 · 34 · 35 · crea 4 variables y la luz media', make: () => ({
+    sensors: [ldr('ldr_nw', 'Luz esquina NO', 32), ldr('ldr_ne', 'Luz esquina NE', 33), ldr('ldr_sw', 'Luz esquina SO', 34), ldr('ldr_se', 'Luz esquina SE', 35)],
+    indicators: [
+      mkInd({ key: 'luz_media', label: 'Luz media (4 LDR)', formula: '(ldr_nw + ldr_ne + ldr_sw + ldr_se) / 4', unit: '%' }),
+      mkInd({ key: 'luz_desbalance', label: 'Diferencia de luz entre esquinas', formula: 'max(ldr_nw, ldr_ne, ldr_sw, ldr_se) - min(ldr_nw, ldr_ne, ldr_sw, ldr_se)', unit: '%', min_ok: 0, max_ok: 35 }),
+    ],
+  }) },
+  { id: 'tank', label: 'Nivel del tanque', hint: 'Ultrasonido HC-SR04 · TRIG 23 · ECHO 19 · calcula el %', make: () => ({
+    sensors: [mkSensor({ key: 'tank_cm', label: 'Distancia al agua', driver: 'hcsr04', pin: 23, param: 19, unit: 'cm' })],
+    indicators: [mkInd({ key: 'tank_pct', label: 'Nivel del tanque', formula: 'max(0, min(100, (15 - tank_cm) / (15 - 3) * 100))', unit: '%', min_ok: 15 })],
+  }) },
+  { id: 'sim', label: 'Simulado (pruebas)', hint: 'Sin hardware, valores aleatorios', make: () => ({ sensors: [mkSensor({ key: 'simulada', label: 'Simulada', driver: 'simulated', sim_min: 0, sim_max: 100 })] }) },
+]
+
+const ACTUATOR_PRESETS: Preset<ActuatorCfg>[] = [
+  { id: 'pump', label: 'Mini bomba', hint: 'Relé · pin 26 · tope 120 s', make: () => mkAct({ key: 'pump', label: 'Mini bomba', pin: 26, max_seconds: 120 }) },
+  { id: 'light', label: 'Luz externa', hint: 'Relé · pin 27 · tope 1 h', make: () => mkAct({ key: 'light', label: 'Luz externa', pin: 27, max_seconds: 3600 }) },
+  { id: 'servo', label: 'Luz indirecta (servo)', hint: 'Postigo · pin 13 · abre a 90° y se queda abierto', make: () => mkAct({ key: 'servo', label: 'Luz indirecta', driver: 'servo', pin: 13, angle_on: 90, angle_off: 0, max_seconds: 30 }) },
 ]
 
 interface Common {
@@ -62,15 +86,19 @@ export function SensorsTab({ cfg, patch, drivers, onLoadHardware }: Common & { d
   const set = (i: number, p: Partial<SensorCfg>) => patch({ sensors: cfg.sensors.map((s, k) => (k === i ? { ...s, ...p } : s)) })
 
   const add = (id: string) => {
-    const preset = PRESETS.find((p) => p.id === id)
+    const preset = SENSOR_PRESETS.find((p) => p.id === id)
     if (!preset) return
+    const made = preset.make()
     const used = new Set([...cfg.sensors.map((s) => s.key), ...cfg.indicators.map((i) => i.key)])
-    const made = preset.make().map((s) => {
-      const key = uniqueKey(s.key, used)
+    const sensors = made.sensors.map((x) => {
+      const key = uniqueKey(x.key, used)
       used.add(key)
-      return { ...s, key }
+      return { ...x, key }
     })
-    patch({ sensors: [...cfg.sensors, ...made] })
+    // Los indicadores de la plantilla se agregan solo si no existen ya (así no se duplican al volver a agregarla)
+    const have = new Set(cfg.indicators.map((i) => i.key))
+    const indicators = (made.indicators ?? []).filter((i) => !have.has(i.key))
+    patch({ sensors: [...cfg.sensors, ...sensors], indicators: [...cfg.indicators, ...indicators] })
     setMenu(false)
   }
 
@@ -87,7 +115,7 @@ export function SensorsTab({ cfg, patch, drivers, onLoadHardware }: Common & { d
               <>
                 <button type="button" className="pop-backdrop" aria-label="Cerrar menú" onClick={() => setMenu(false)} />
                 <div className="pop right wide" role="menu">
-                  {PRESETS.map((p) => (
+                  {SENSOR_PRESETS.map((p) => (
                     <button key={p.id} type="button" role="menuitem" onClick={() => add(p.id)}>
                       <b>{p.label}</b>
                       <small>{p.hint}</small>
@@ -102,7 +130,7 @@ export function SensorsTab({ cfg, patch, drivers, onLoadHardware }: Common & { d
     >
       {cfg.sensors.map((s, i) => {
         const d = drv(s.driver)
-        const where = s.driver === 'simulated' ? 'simulado' : s.driver === 'bh1750' ? 'I2C' : s.pin != null ? `GPIO ${s.pin}` : 'sin pin'
+        const where = s.driver === 'simulated' ? 'simulado' : s.driver === 'hcsr04' ? `TRIG ${s.pin ?? '?'} · ECHO ${s.param ?? '?'}` : s.pin != null ? `GPIO ${s.pin}` : 'sin pin'
         const summary = [where, s.unit && `en ${s.unit}`, range(s.min_ok, s.max_ok, s.unit)].filter(Boolean).join(' · ')
         return (
           <Card
@@ -125,9 +153,10 @@ export function SensorsTab({ cfg, patch, drivers, onLoadHardware }: Common & { d
                   {sensorDrivers.map((x) => <option key={x.driver} value={x.driver}>{x.label}</option>)}
                 </select>
               </Field>
-              {d?.needs_pin && <Field label="Pin"><input type="number" value={val(s.pin)} onChange={(e) => set(i, { pin: num(e.target.value) })} /></Field>}
-              {(s.driver === 'dht_t' || s.driver === 'dht_h' || s.driver === 'bh1750') && (
-                <Field label={s.driver === 'bh1750' ? 'Dirección I2C' : 'Modelo DHT'}><input type="number" value={val(s.param)} onChange={(e) => set(i, { param: num(e.target.value) })} /></Field>
+              {d?.needs_pin && <Field label={s.driver === 'hcsr04' ? 'Pin TRIG' : 'Pin'}><input type="number" value={val(s.pin)} onChange={(e) => set(i, { pin: num(e.target.value) })} /></Field>}
+              {s.driver === 'hcsr04' && <Field label="Pin ECHO" hint="Con divisor a 3,3 V"><input type="number" value={val(s.param)} onChange={(e) => set(i, { param: num(e.target.value) })} /></Field>}
+              {(s.driver === 'dht_t' || s.driver === 'dht_h') && (
+                <Field label="Modelo DHT" hint="11 = DHT11"><input type="number" value={val(s.param)} onChange={(e) => set(i, { param: num(e.target.value) })} /></Field>
               )}
               <Field label="Unidad"><input value={s.unit} onChange={(e) => set(i, { unit: e.target.value })} /></Field>
             </div>
@@ -156,25 +185,46 @@ export function SensorsTab({ cfg, patch, drivers, onLoadHardware }: Common & { d
 }
 
 // ------------------------------------------------------------------------------------------ Actuadores
-export function ActuatorsTab({ cfg, patch, drivers, sensorKeys, apiKey, dirty, onTest, onNeedKey }: Common & { drivers: DriverInfo[]; sensorKeys: string[]; apiKey: string; dirty: boolean; onTest: (key: string) => void; onNeedKey: () => void }) {
+export function ActuatorsTab({ cfg, patch, drivers, sensorKeys, apiKey, dirty, onTest, onNeedKey }: Common & { drivers: DriverInfo[]; sensorKeys: string[]; apiKey: string; dirty: boolean; onTest: (key: string, seconds: number) => void; onNeedKey: () => void }) {
+  const [menu, setMenu] = useState(false)
   const actuatorDrivers = drivers.filter((d) => d.kind === 'actuator')
   const set = (i: number, p: Partial<ActuatorCfg>) => patch({ actuators: cfg.actuators.map((s, k) => (k === i ? { ...s, ...p } : s)) })
+  const add = (id: string) => {
+    const preset = ACTUATOR_PRESETS.find((p) => p.id === id)
+    if (!preset) return
+    const made = preset.make()
+    const used = new Set(cfg.actuators.map((x) => x.key))
+    patch({ actuators: [...cfg.actuators, { ...made, key: uniqueKey(made.key, used) }] })
+    setMenu(false)
+  }
 
   return (
     <Section
       title="Actuadores"
-      sub="Bombas, válvulas y relés. Pueden activarse a mano o con una regla que funciona aunque no haya internet."
+      sub="Mini bomba, luz externa y el servo de la luz indirecta. Pueden activarse a mano o con una regla que funciona aunque no haya internet."
       actions={
-        <button type="button" className="btn primary sm" onClick={() => {
-          const used = new Set(cfg.actuators.map((a) => a.key))
-          patch({ actuators: [...cfg.actuators, { key: uniqueKey('actuador', used), label: 'Nuevo actuador', driver: 'relay', pin: 26, active_high: true, max_seconds: 120, auto_variable: null, auto_on_below: null, auto_on_above: null, auto_off_at: null, auto_seconds: 30, cooldown_s: 600, enabled: true }] })
-        }}><Icon name="plus" size={15} /> Agregar actuador</button>
+        <div className="pop-wrap">
+          <button type="button" className="btn primary sm" onClick={() => setMenu((m) => !m)} aria-expanded={menu}><Icon name="plus" size={15} /> Agregar actuador</button>
+          {menu && (
+            <>
+              <button type="button" className="pop-backdrop" aria-label="Cerrar menú" onClick={() => setMenu(false)} />
+              <div className="pop right wide" role="menu">
+                {ACTUATOR_PRESETS.map((p) => (
+                  <button key={p.id} type="button" role="menuitem" onClick={() => add(p.id)}>
+                    <b>{p.label}</b>
+                    <small>{p.hint}</small>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
       }
     >
       {cfg.actuators.map((a, i) => {
         const rule = a.auto_variable != null
         const below = a.auto_on_below != null
-        const summary = [a.pin == null ? 'virtual' : `GPIO ${a.pin}`, rule ? `auto: ${a.auto_variable} ${below ? '<' : '>'} ${below ? a.auto_on_below : a.auto_on_above}` : 'manual', `tope ${a.max_seconds} s`].join(' · ')
+        const summary = [a.pin == null ? 'virtual' : `GPIO ${a.pin}`, a.driver === 'servo' ? `cerrada ${a.angle_off}° · abierta ${a.angle_on}°` : null, rule ? `auto: ${a.auto_variable} ${below ? '<' : '>'} ${below ? a.auto_on_below : a.auto_on_above}` : 'manual', `tope ${a.max_seconds} s`].filter(Boolean).join(' · ')
         return (
           <Card
             key={i}
@@ -189,7 +239,14 @@ export function ActuatorsTab({ cfg, patch, drivers, sensorKeys, apiKey, dirty, o
             }
             actions={
               <>
-                <button type="button" className="btn sm" onClick={() => (apiKey ? onTest(a.key) : onNeedKey())} disabled={dirty} title={dirty ? 'Guarda los cambios primero' : 'Lo enciende 5 segundos'}>Probar 5 s</button>
+                {a.driver === 'servo' ? (
+                  <>
+                    <button type="button" className="btn sm" onClick={() => (apiKey ? onTest(a.key, 1) : onNeedKey())} disabled={dirty} title={dirty ? 'Guarda los cambios primero' : 'Lo lleva al ángulo abierto'}>Abrir</button>
+                    <button type="button" className="btn sm" onClick={() => (apiKey ? onTest(a.key, 0) : onNeedKey())} disabled={dirty} title={dirty ? 'Guarda los cambios primero' : 'Lo lleva al ángulo cerrado'}>Cerrar</button>
+                  </>
+                ) : (
+                  <button type="button" className="btn sm" onClick={() => (apiKey ? onTest(a.key, 5) : onNeedKey())} disabled={dirty} title={dirty ? 'Guarda los cambios primero' : 'Lo enciende 5 segundos'}>Probar 5 s</button>
+                )}
                 <button type="button" className="icon-btn danger" onClick={() => patch({ actuators: cfg.actuators.filter((_, k) => k !== i) })} aria-label={`Quitar ${a.label}`} title="Quitar"><Icon name="trash" size={16} /></button>
               </>
             }
@@ -202,8 +259,15 @@ export function ActuatorsTab({ cfg, patch, drivers, sensorKeys, apiKey, dirty, o
                 </select>
               </Field>
               <Field label="Pin" hint="Vacío = virtual"><input type="number" placeholder="virtual" value={val(a.pin)} onChange={(e) => set(i, { pin: num(e.target.value) })} /></Field>
-              <Field label="Tope (s)" hint="Nunca más de esto seguido"><input type="number" value={a.max_seconds} onChange={(e) => set(i, { max_seconds: Number(e.target.value) || 1 })} /></Field>
-              <label className="fld inline"><span>Se activa en alto</span><Switch checked={a.active_high} onChange={(v) => set(i, { active_high: v })} label="Activo en alto" /></label>
+              {a.driver !== 'servo' && <Field label="Tope (s)" hint="Nunca más de esto seguido"><input type="number" value={a.max_seconds} onChange={(e) => set(i, { max_seconds: Number(e.target.value) || 1 })} /></Field>}
+              {a.driver === 'servo' ? (
+                <>
+                  <Field label="Ángulo abierto" hint="0 a 180°"><input type="number" min={0} max={180} value={a.angle_on} onChange={(e) => set(i, { angle_on: Math.min(180, Math.max(0, Number(e.target.value) || 0)) })} /></Field>
+                  <Field label="Ángulo cerrado" hint="Posición de reposo"><input type="number" min={0} max={180} value={a.angle_off} onChange={(e) => set(i, { angle_off: Math.min(180, Math.max(0, Number(e.target.value) || 0)) })} /></Field>
+                </>
+              ) : (
+                <label className="fld inline"><span>Se activa en alto</span><Switch checked={a.active_high} onChange={(v) => set(i, { active_high: v })} label="Activo en alto" /></label>
+              )}
             </div>
 
             <div className="rule">
@@ -226,12 +290,18 @@ export function ActuatorsTab({ cfg, patch, drivers, sensorKeys, apiKey, dirty, o
                       <option value="above">encima de</option>
                     </select>
                     <input type="number" step="any" value={val(below ? a.auto_on_below : a.auto_on_above)} onChange={(e) => set(i, below ? { auto_on_below: num(e.target.value) } : { auto_on_above: num(e.target.value) })} aria-label="Valor" />
-                    <span>→ encender</span>
-                    <input type="number" value={a.auto_seconds} onChange={(e) => set(i, { auto_seconds: Number(e.target.value) || 1 })} aria-label="Duración en segundos" />
-                    <span>s</span>
+                    {a.driver === 'servo' ? (
+                      <span>→ abrir</span>
+                    ) : (
+                      <>
+                        <span>→ encender</span>
+                        <input type="number" value={a.auto_seconds} onChange={(e) => set(i, { auto_seconds: Number(e.target.value) || 1 })} aria-label="Duración en segundos" />
+                        <span>s</span>
+                      </>
+                    )}
                   </div>
                   <div className="cfg-grid">
-                    <Field label="Cortar antes si llega a" hint="Opcional"><input type="number" step="any" value={val(a.auto_off_at)} onChange={(e) => set(i, { auto_off_at: num(e.target.value) })} /></Field>
+                    <Field label={a.driver === 'servo' ? 'Cerrar cuando llegue a' : 'Cortar antes si llega a'} hint={a.driver === 'servo' ? 'Sin esto queda abierto hasta que lo cierres' : 'Opcional'}><input type="number" step="any" value={val(a.auto_off_at)} onChange={(e) => set(i, { auto_off_at: num(e.target.value) })} /></Field>
                     <Field label="Esperar entre acciones (s)"><input type="number" value={a.cooldown_s} onChange={(e) => set(i, { cooldown_s: Number(e.target.value) || 0 })} /></Field>
                   </div>
                 </div>
@@ -240,7 +310,7 @@ export function ActuatorsTab({ cfg, patch, drivers, sensorKeys, apiKey, dirty, o
           </Card>
         )
       })}
-      {!cfg.actuators.length && <Empty text="Aún no hay actuadores." />}
+      {!cfg.actuators.length && <Empty text="Aún no hay actuadores. Agrega la mini bomba, la luz externa o el servo." />}
     </Section>
   )
 }
@@ -298,17 +368,29 @@ export function DeviceTab({ cfg, patch, version }: Common & { version: number })
   const [copied, setCopied] = useState(false)
   const wiring = useMemo(() => {
     const rows: { pin: string; who: string; kind: string }[] = []
-    cfg.sensors.filter((s) => s.enabled).forEach((s) => {
-      if (s.driver === 'bh1750') rows.push({ pin: 'GPIO 21/22 (I2C)', who: s.label, kind: 'BH1750' })
-      else if (s.driver !== 'simulated') rows.push({ pin: s.pin == null ? '—' : `GPIO ${s.pin}`, who: s.label, kind: s.driver })
+    cfg.sensors.filter((s) => s.enabled && s.driver !== 'simulated').forEach((s) => {
+      if (s.driver === 'hcsr04') {
+        rows.push({ pin: s.pin == null ? '—' : `GPIO ${s.pin}`, who: `${s.label} (TRIG)`, kind: 'HC-SR04' })
+        rows.push({ pin: s.param == null ? '—' : `GPIO ${s.param}`, who: `${s.label} (ECHO, con divisor a 3,3 V)`, kind: 'HC-SR04' })
+      } else rows.push({ pin: s.pin == null ? '—' : `GPIO ${s.pin}`, who: s.label, kind: s.driver })
     })
     cfg.actuators.filter((a) => a.enabled).forEach((a) => rows.push({ pin: a.pin == null ? 'virtual' : `GPIO ${a.pin}`, who: a.label, kind: a.driver }))
+    if (cfg.display.enabled) {
+      rows.push({ pin: 'GPIO 21', who: 'Pantalla OLED (SDA)', kind: 'SSD1306' })
+      rows.push({ pin: 'GPIO 22', who: 'Pantalla OLED (SCL)', kind: 'SSD1306' })
+    }
     return rows
   }, [cfg])
 
+  const d = cfg.display
+  const setDisplay = (p: Partial<typeof d>) => patch({ display: { ...d, ...p } })
+  /** Variables que el ESP32 conoce: sensores y actuadores activos (los indicadores se calculan en el servidor). */
+  const showable = [...cfg.sensors.filter((s) => s.enabled).map((s) => ({ key: s.key, label: s.label })), ...cfg.actuators.filter((a) => a.enabled).map((a) => ({ key: a.key, label: a.label }))]
+  const toggleShow = (k: string) => setDisplay({ show: d.show.includes(k) ? d.show.filter((x) => x !== k) : [...d.show, k].slice(0, 8) })
+
   /** Lo que recibirá el ESP32 (solo lo activo; los indicadores los calcula el servidor). */
   const json = useMemo(
-    () => JSON.stringify({ version, report_interval_s: cfg.report_interval_s, sensors: cfg.sensors.filter((s) => s.enabled), actuators: cfg.actuators.filter((a) => a.enabled) }, null, 1),
+    () => JSON.stringify({ version, report_interval_s: cfg.report_interval_s, sensors: cfg.sensors.filter((s) => s.enabled), actuators: cfg.actuators.filter((a) => a.enabled), display: cfg.display }, null, 1),
     [cfg, version],
   )
 
@@ -328,6 +410,30 @@ export function DeviceTab({ cfg, patch, version }: Common & { version: number })
           <div className="stat-mini"><span>Versión de la configuración</span><b>{version}</b></div>
         </div>
         <p className="cfg-help">El ESP32 consulta cada 30 s; si hay una versión nueva la aplica y la guarda en su memoria (funciona también sin internet).</p>
+      </div>
+
+      <h3 className="sec-h3">Pantalla OLED</h3>
+      <div className="cfg-card static">
+        <label className="rule-h">
+          <Switch checked={d.enabled} onChange={(v) => setDisplay({ enabled: v })} label="Pantalla OLED activa" />
+          <span><b>Pantalla OLED 0,91″ (128×32)</b><small>I2C: SDA en GPIO 21 y SCL en GPIO 22. Muestra 3 variables por página.</small></span>
+        </label>
+        {d.enabled && (
+          <>
+            <div className="cfg-grid" style={{ marginTop: 12 }}>
+              <Field label="Dirección I2C" hint="60 = 0x3C (lo normal)"><input type="number" min={8} max={119} value={d.address} onChange={(e) => setDisplay({ address: Math.min(119, Math.max(8, Number(e.target.value) || 60)) })} /></Field>
+              <Field label="Cambiar de página cada (s)"><input type="number" min={2} max={60} value={d.rotate_s} onChange={(e) => setDisplay({ rotate_s: Math.min(60, Math.max(2, Number(e.target.value) || 4)) })} /></Field>
+            </div>
+            <p className="cfg-help" style={{ margin: '12px 0 6px' }}>Qué mostrar (máx. 8, en este orden de selección; si no eliges ninguno, muestra todos):</p>
+            <div className="chip-row" role="group" aria-label="Variables en la pantalla">
+              {showable.map((v) => (
+                <button key={v.key} type="button" className={'chip-btn' + (d.show.includes(v.key) ? ' on' : '')} aria-pressed={d.show.includes(v.key)} onClick={() => toggleShow(v.key)}>
+                  {d.show.includes(v.key) ? `${d.show.indexOf(v.key) + 1}. ` : ''}{v.label}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
       </div>
 
       <h3 className="sec-h3">Cableado</h3>

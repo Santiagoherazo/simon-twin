@@ -8,10 +8,14 @@
 #include <ESPmDNS.h>
 #include <LittleFS.h>
 
-// Descomenta según los sensores que uses (e instala la librería). Si el backend configura un sensor
+// Hardware confirmado: DHT11, humedad de suelo capacitiva, DS18B20 enterrado, 4 LDR, ultrasonido HC-SR04,
+// mini bomba, luz externa (relés), servo y pantalla OLED 0,91" (SSD1306 128x32 por I2C).
+// Comenta una línea si NO usas esa pieza (así no necesitas instalar su librería). Si el backend configura algo
 // cuyo driver no está compilado, el ESP32 lo omite y avisa por el monitor serie.
-// #define USE_DHT        // librería «DHT sensor library» (Adafruit) + «Adafruit Unified Sensor»
-// #define USE_DS18B20    // librerías «OneWire» y «DallasTemperature»
+#define USE_DHT        // librería «DHT sensor library» (Adafruit) + «Adafruit Unified Sensor»
+#define USE_DS18B20    // librerías «OneWire» y «DallasTemperature»
+#define USE_SERVO      // librería «ESP32Servo»
+#define USE_OLED       // librería «U8g2» (olikraus)
 #include <Wire.h>
 #ifdef USE_DHT
 #include <DHT.h>
@@ -20,8 +24,14 @@
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #endif
+#ifdef USE_SERVO
+#include <ESP32Servo.h>
+#endif
+#ifdef USE_OLED
+#include <U8g2lib.h>
+#endif
 
-#define FW_VERSION "2.0"
+#define FW_VERSION "2.1"
 
 // === CONFIGURACIÓN WIFI ===
 const char* ssid     = "vivo Y33s";
@@ -130,14 +140,15 @@ bool fetchConfig() {
 // flash (/config.json) y se aplica sin reiniciar. Lo que no tenga driver compilado (DHT, DS18B20) se omite con aviso.
 const int MAXS = 24, MAXA = 8, HN = 240;
 const int PAYLOAD_MAX = 360;                  // bytes del JSON de telemetría (cabe en una posición de la cola)
-enum Drv : uint8_t { D_ANALOG, D_DIGITAL, D_DHT_T, D_DHT_H, D_DS18B20, D_BH1750, D_SIM };
+enum Drv : uint8_t { D_ANALOG, D_DHT_T, D_DHT_H, D_DS18B20, D_HCSR04, D_SIM };
+enum ActDrv : uint8_t { A_RELAY, A_SERVO };
 
 struct SensorCfg { char key[33]; char label[41]; char unit[13]; uint8_t drv; int16_t pin; int16_t param; float scale, offset, simMin, simMax; };
 struct ActCfg {
-  char key[33]; char label[41]; bool activeHigh; int16_t pin; uint16_t maxS; char autoVar[33];
+  char key[33]; char label[41]; uint8_t drv; bool activeHigh; int16_t pin; int16_t angOn, angOff; uint16_t maxS; char autoVar[33];
   bool hasBelow, hasAbove, hasOff; float onBelow, onAbove, offAt; uint16_t autoS; uint32_t cooldownS;
 };
-struct ActState { bool on; bool autoRun; unsigned long until; unsigned long endedAt; };
+struct ActState { bool on; bool autoRun; bool hold; unsigned long until; unsigned long endedAt; };   // hold: el servo se queda en su posición hasta que lo cierren
 
 SensorCfg sens[MAXS]; int nSens = 0;
 ActCfg acts[MAXA]; ActState actSt[MAXA]; int nActs = 0;
@@ -148,27 +159,46 @@ unsigned long reportMs = 10000;
 float curVal[MAXS];
 SemaphoreHandle_t cfgLock;
 
+// Pantalla OLED: qué variables rota y cada cuánto (viene del backend dentro de la configuración).
+struct DispCfg { bool enabled; uint8_t addr; uint8_t rotateS; uint8_t nShow; char show[8][33]; };
+DispCfg disp = { false, 0x3C, 4, 0, {} };
+#ifdef USE_SERVO
+Servo servos[MAXA];
+#endif
+
+// Configuración de fábrica (si no hay una guardada ni red para descargarla): el hardware confirmado, con los pines del montaje.
 const char DEFAULT_CFG[] PROGMEM = R"CFG({"version":0,"report_interval_s":10,"sensors":[
-{"key":"vwc_raw","label":"Humedad suelo (ADC)","driver":"simulated","sim_min":2150,"sim_max":2450},
-{"key":"soil_t","label":"Temp. suelo","unit":"C","driver":"simulated","sim_min":19.5,"sim_max":23},
-{"key":"ph","label":"pH","driver":"simulated","sim_min":6.2,"sim_max":6.8},
-{"key":"air_t","label":"Temp. aire","unit":"C","driver":"simulated","sim_min":23.5,"sim_max":27.5},
-{"key":"air_rh","label":"Humedad aire","unit":"%","driver":"simulated","sim_min":50,"sim_max":75}],
-"actuators":[{"key":"pump","label":"Bomba","max_seconds":120}]})CFG";
+{"key":"air_t","label":"Temp. aire","unit":"C","driver":"dht_t","pin":4,"param":11},
+{"key":"air_rh","label":"Humedad aire","unit":"%","driver":"dht_h","pin":4,"param":11},
+{"key":"vwc_raw","label":"Humedad suelo","driver":"analog","pin":36},
+{"key":"soil_t","label":"Temp. suelo","unit":"C","driver":"ds18b20","pin":18},
+{"key":"ldr_nw","label":"Luz NO","unit":"%","driver":"analog","pin":32,"scale":0.02442},
+{"key":"ldr_ne","label":"Luz NE","unit":"%","driver":"analog","pin":33,"scale":0.02442},
+{"key":"ldr_sw","label":"Luz SO","unit":"%","driver":"analog","pin":34,"scale":0.02442},
+{"key":"ldr_se","label":"Luz SE","unit":"%","driver":"analog","pin":35,"scale":0.02442},
+{"key":"tank_cm","label":"Dist. agua","unit":"cm","driver":"hcsr04","pin":23,"param":19}],
+"actuators":[
+{"key":"pump","label":"Mini bomba","driver":"relay","pin":26,"max_seconds":120},
+{"key":"light","label":"Luz externa","driver":"relay","pin":27,"max_seconds":3600},
+{"key":"servo","label":"Luz indirecta","driver":"servo","pin":13,"angle_on":90,"angle_off":0,"max_seconds":30}],
+"display":{"enabled":true,"address":60,"rotate_s":4,"show":["air_t","air_rh","vwc_raw","soil_t","tank_cm","pump"]}})CFG";
 
 int drvFromName(const char* n) {
   if (!strcmp(n, "analog")) return D_ANALOG;
-  if (!strcmp(n, "digital")) return D_DIGITAL;
   if (!strcmp(n, "dht_t")) return D_DHT_T;
   if (!strcmp(n, "dht_h")) return D_DHT_H;
   if (!strcmp(n, "ds18b20")) return D_DS18B20;
-  if (!strcmp(n, "bh1750")) return D_BH1750;
+  if (!strcmp(n, "hcsr04")) return D_HCSR04;
   if (!strcmp(n, "simulated")) return D_SIM;
   return -1;
 }
 
 void actWrite(int i, bool on) {
   actSt[i].on = on;
+#ifdef USE_SERVO
+  if (acts[i].drv == A_SERVO) { if (servos[i].attached()) servos[i].write(on ? acts[i].angOn : acts[i].angOff); }
+  else
+#endif
   if (acts[i].pin >= 0) digitalWrite(acts[i].pin, (on == acts[i].activeHigh) ? HIGH : LOW);
   Serial.printf("[ACT] %s %s\n", acts[i].key, on ? "ON" : "OFF");
 }
@@ -214,11 +244,30 @@ int applyConfig(const String& json) {
     strlcpy(c.key, a["key"] | "", sizeof(c.key));
     strlcpy(c.label, a["label"] | "", sizeof(c.label));
     c.pin = a["pin"] | -1; c.activeHigh = a["active_high"] | true; c.maxS = a["max_seconds"] | 120;
+    c.drv = !strcmp(a["driver"] | "relay", "servo") ? A_SERVO : A_RELAY;
+    c.angOn = a["angle_on"] | 90; c.angOff = a["angle_off"] | 0;
+    c.angOn = constrain(c.angOn, 0, 180);
+    c.angOff = constrain(c.angOff, 0, 180);
+#ifndef USE_SERVO
+    if (c.drv == A_SERVO) { Serial.printf("[CFG] %s necesita USE_SERVO: omitido\n", c.key); c.key[0] = 0; }
+#endif
     strlcpy(c.autoVar, a["auto_variable"] | "", sizeof(c.autoVar));
     c.hasBelow = !a["auto_on_below"].isNull(); c.hasAbove = !a["auto_on_above"].isNull(); c.hasOff = !a["auto_off_at"].isNull();
     c.onBelow = a["auto_on_below"] | 0.0f; c.onAbove = a["auto_on_above"] | 0.0f; c.offAt = a["auto_off_at"] | 0.0f;
     c.autoS = a["auto_seconds"] | 30; c.cooldownS = a["cooldown_s"] | 600;
     if (!c.key[0]) ca--;
+  }
+
+  DispCfg nd; memset(&nd, 0, sizeof(nd)); nd.addr = 0x3C; nd.rotateS = 4;
+  JsonObject jd = doc["display"].as<JsonObject>();
+  if (!jd.isNull()) {
+    nd.enabled = jd["enabled"] | false;
+    nd.addr = jd["address"] | 60;
+    int rs = jd["rotate_s"] | 4; nd.rotateS = rs < 2 ? 2 : (rs > 60 ? 60 : rs);
+    for (JsonVariant k : jd["show"].as<JsonArray>()) {
+      const char* ks = k.as<const char*>();
+      if (ks && nd.nShow < 8) strlcpy(nd.show[nd.nShow++], ks, sizeof(nd.show[0]));
+    }
   }
 
   xSemaphoreTake(cfgLock, portMAX_DELAY);
@@ -235,8 +284,22 @@ int applyConfig(const String& json) {
   for (int i = 0; i < nActs; i++) {
     memset(&actSt[i], 0, sizeof(ActState)); actReq[i] = 0; actStopReq[i] = false;
     for (int k = 0; k < oldN; k++) if (!strcmp(oldA[k].key, acts[i].key) && oldA[k].pin == acts[i].pin) actSt[i] = oldSt[k];   // conserva el estado
-    if (acts[i].pin >= 0) { pinMode(acts[i].pin, OUTPUT); digitalWrite(acts[i].pin, (actSt[i].on == acts[i].activeHigh) ? HIGH : LOW); }
+    if (acts[i].drv == A_SERVO) {
+#ifdef USE_SERVO
+      if (servos[i].attached()) servos[i].detach();
+      if (acts[i].pin >= 0) { servos[i].setPeriodHertz(50); servos[i].attach(acts[i].pin, 500, 2400); servos[i].write(actSt[i].on ? acts[i].angOn : acts[i].angOff); }
+#endif
+    } else {
+#ifdef USE_SERVO
+      if (servos[i].attached()) servos[i].detach();      // este índice antes era un servo
+#endif
+      if (acts[i].pin >= 0) { pinMode(acts[i].pin, OUTPUT); digitalWrite(acts[i].pin, (actSt[i].on == acts[i].activeHigh) ? HIGH : LOW); }
+    }
   }
+#ifdef USE_SERVO
+  for (int i = nActs; i < MAXA; i++) if (servos[i].attached()) servos[i].detach();
+#endif
+  disp = nd;
   for (int i = 0; i < MAXS; i++) curVal[i] = NAN;
   cfgVersion = doc["version"] | 0;
   int ri = doc["report_interval_s"] | 10;
@@ -266,16 +329,21 @@ float readDs18b20(int pin) {
   return t == DEVICE_DISCONNECTED_C ? NAN : t;
 }
 #endif
-float readBh1750(int addr) {
-  static bool started = false;
-  if (!started) { Wire.begin(21, 22); started = true; }
-  uint8_t a = addr > 0 ? addr : 0x23;
-  Wire.beginTransmission(a); Wire.write(0x10);
-  if (Wire.endTransmission() != 0) return NAN;
-  delay(180);
-  if (Wire.requestFrom(a, (uint8_t)2) != 2) return NAN;
-  uint16_t raw = (Wire.read() << 8) | Wire.read();
-  return raw / 1.2f;
+// HC-SR04: pin = TRIG, param = ECHO. Mediana de 3 mediciones (descarta ecos sueltos). Distancia en cm; fuera de 2-400 cm = sin dato.
+float readHcsr04(int trig, int echo) {
+  if (trig < 0 || echo < 0) return NAN;
+  pinMode(trig, OUTPUT); pinMode(echo, INPUT);
+  float v[3]; int n = 0;
+  for (int i = 0; i < 3; i++) {
+    digitalWrite(trig, LOW); delayMicroseconds(4);
+    digitalWrite(trig, HIGH); delayMicroseconds(10); digitalWrite(trig, LOW);
+    unsigned long us = pulseIn(echo, HIGH, 30000UL);          // 30 ms ≈ 5 m
+    if (us > 0) { float cm = us * 0.0343f / 2.0f; if (cm >= 2.0f && cm <= 400.0f) v[n++] = cm; }
+    delay(30);
+  }
+  if (n == 0) return NAN;
+  for (int i = 1; i < n; i++) for (int j = i; j > 0 && v[j - 1] > v[j]; j--) { float t = v[j]; v[j] = v[j - 1]; v[j - 1] = t; }
+  return v[n / 2];
 }
 
 float readOne(const SensorCfg& s) {
@@ -283,8 +351,7 @@ float readOne(const SensorCfg& s) {
   switch (s.drv) {
     case D_SIM: v = s.simMin + (s.simMax - s.simMin) * (random(0, 10001) / 10000.0f); break;
     case D_ANALOG: { if (s.pin < 0) return NAN; long sum = 0; for (int i = 0; i < 8; i++) sum += analogRead(s.pin); v = (sum / 8.0f) * s.scale + s.offset; break; }
-    case D_DIGITAL: if (s.pin < 0) return NAN; v = digitalRead(s.pin) ? 1.0f : 0.0f; break;
-    case D_BH1750: v = readBh1750(s.param); if (!isnan(v)) v = v * s.scale + s.offset; break;
+    case D_HCSR04: v = readHcsr04(s.pin, s.param); if (!isnan(v)) v = v * s.scale + s.offset; break;
 #ifdef USE_DHT
     case D_DHT_T: case D_DHT_H: { DHT* d = dhtFor(s.pin, s.param); if (!d) return NAN; v = (s.drv == D_DHT_T) ? d->readTemperature() : d->readHumidity(); if (!isnan(v)) v = v * s.scale + s.offset; break; }
 #endif
@@ -296,6 +363,76 @@ float readOne(const SensorCfg& s) {
 }
 
 void readSensors() { for (int i = 0; i < nSens; i++) curVal[i] = readOne(sens[i]); }
+
+void fmtNum(char* buf, size_t n, float v);      // definida más abajo
+
+// --- pantalla OLED 0,91" (SSD1306 128x32, I2C en GPIO 21/22) ---
+// Rota entre las variables elegidas en el panel (3 por página). Se dibuja desde loop(), una vez por segundo.
+#ifdef USE_OLED
+U8G2_SSD1306_128X32_UNIVISION_F_HW_I2C oled(U8G2_R0, U8X8_PIN_NONE);
+struct OledItem { char name[11]; char val[12]; };
+void utf8Trim(char* t) {                       // quita un carácter UTF-8 cortado al final (ñ, á, °…)
+  int n = strlen(t);
+  while (n > 0 && ((uint8_t)t[n - 1] & 0xC0) == 0x80) n--;
+  if (n > 0 && (uint8_t)t[n - 1] >= 0xC0) n--;
+  t[n] = 0;
+}
+#endif
+
+void oledTick() {
+#ifdef USE_OLED
+  static unsigned long last = 0, pageAt = 0;
+  static bool started = false; static uint8_t startedAddr = 0; static int page = 0;
+  if (millis() - last < 1000) return;
+  last = millis();
+  static OledItem items[32]; int n = 0;
+  bool on; uint8_t addr, rot;
+  xSemaphoreTake(cfgLock, portMAX_DELAY);
+  on = disp.enabled; addr = disp.addr; rot = disp.rotateS;
+  if (on) {
+    auto addSens = [&](int i) {
+      if (n >= 32) return;
+      strlcpy(items[n].name, sens[i].label, sizeof(items[n].name)); utf8Trim(items[n].name);
+      if (isnan(curVal[i])) strlcpy(items[n].val, "--", sizeof(items[n].val));
+      else { char b[12]; fmtNum(b, sizeof(b), curVal[i]); snprintf(items[n].val, sizeof(items[n].val), "%s%s", b, sens[i].unit); utf8Trim(items[n].val); }
+      n++;
+    };
+    auto addAct = [&](int i) {
+      if (n >= 32) return;
+      strlcpy(items[n].name, acts[i].label, sizeof(items[n].name)); utf8Trim(items[n].name);
+      strlcpy(items[n].val, actSt[i].on ? "ON" : "OFF", sizeof(items[n].val));
+      n++;
+    };
+    if (disp.nShow == 0) { for (int i = 0; i < nSens; i++) addSens(i); for (int i = 0; i < nActs; i++) addAct(i); }
+    else for (int k = 0; k < disp.nShow; k++) {
+      bool found = false;
+      for (int i = 0; i < nSens && !found; i++) if (!strcmp(sens[i].key, disp.show[k])) { addSens(i); found = true; }
+      for (int i = 0; i < nActs && !found; i++) if (!strcmp(acts[i].key, disp.show[k])) { addAct(i); found = true; }
+    }
+  }
+  xSemaphoreGive(cfgLock);
+  if (!on) { if (started) { oled.clearDisplay(); started = false; } return; }
+  if (!started || startedAddr != addr) {
+    oled.setI2CAddress(addr * 2);                 // u8g2 usa la dirección de 8 bits
+    oled.begin(); oled.setBusClock(400000); oled.enableUTF8Print();
+    started = true; startedAddr = addr;
+  }
+  int pages = n ? (n + 2) / 3 : 1;
+  if (millis() - pageAt >= (unsigned long)rot * 1000UL) { page = (page + 1) % pages; pageAt = millis(); }
+  if (page >= pages) page = 0;
+  oled.clearBuffer();
+  oled.setFont(u8g2_font_6x10_tf);
+  if (n == 0) oled.drawUTF8(0, 20, "Sin datos");
+  for (int r = 0; r < 3; r++) {
+    int idx = page * 3 + r;
+    if (idx >= n) break;
+    int y = 9 + r * 11;                         // 9, 20, 31: deja un margen abajo
+    oled.drawUTF8(0, y, items[idx].name);
+    oled.drawUTF8(128 - oled.getUTF8Width(items[idx].val), y, items[idx].val);
+  }
+  oled.sendBuffer();
+#endif
+}
 
 // --- telemetría ---
 void fmtNum(char* buf, size_t n, float v) {
@@ -347,9 +484,10 @@ void actTick(unsigned long now) {
     if (r > 0) {
       actReq[i] = 0;
       unsigned long sec = (unsigned long)(r > acts[i].maxS ? acts[i].maxS : r);   // tope de seguridad del firmware
-      s.autoRun = false; s.until = now + sec * 1000UL; actWrite(i, true);
+      s.autoRun = false; s.until = now + sec * 1000UL; s.hold = (acts[i].drv == A_SERVO); actWrite(i, true);
     }
-    if (s.on && (long)(now - s.until) >= 0) { actWrite(i, false); s.endedAt = now; }
+    // Relés: se apagan al vencer el tiempo. Servo (postigo de luz): se queda abierto hasta que llegue la orden de cerrar.
+    if (s.on && !s.hold && (long)(now - s.until) >= 0) { actWrite(i, false); s.endedAt = now; }
   }
 }
 
@@ -364,7 +502,7 @@ void actAuto(unsigned long now) {
       bool trig = (a.hasBelow && v < a.onBelow) || (a.hasAbove && v > a.onAbove);
       bool cool = s.endedAt == 0 || (now - s.endedAt) >= a.cooldownS * 1000UL;
       if (trig && cool) {
-        s.autoRun = true; s.until = now + (unsigned long)(a.autoS > a.maxS ? a.maxS : a.autoS) * 1000UL; actWrite(i, true);
+        s.autoRun = true; s.until = now + (unsigned long)(a.autoS > a.maxS ? a.maxS : a.autoS) * 1000UL; s.hold = (a.drv == A_SERVO); actWrite(i, true);
         Serial.printf("[ACT] regla automática: %s = %.1f\n", a.autoVar, v);
       }
     } else if (s.autoRun && a.hasOff) {
@@ -375,19 +513,22 @@ void actAuto(unsigned long now) {
 }
 // <<< LOGIC
 
-// === CALLBACK MQTT === (comando de actuador: simon/esp32-01/cmd/<clave> con {"seconds":30})
+// === CALLBACK MQTT === (comando de actuador: simon/esp32-01/cmd/<clave> con {"seconds":30}; {"seconds":0} lo apaga)
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
   Serial.printf("[MQTT] RX [%s] %.*s\n", topic, (int)length, (const char*)payload);
   const char* p = strstr(topic, "/cmd/");
   if (!p) return;
   StaticJsonDocument<192> doc;
   if (deserializeJson(doc, payload, length)) return;
-  int sec = doc["seconds"] | 0;
-  if (sec <= 0) return;
+  if (!doc.containsKey("seconds")) return;
+  int sec = doc["seconds"] | -1;
+  if (sec < 0) return;
   xSemaphoreTake(cfgLock, portMAX_DELAY);
   int i = findAct(p + 5);
   xSemaphoreGive(cfgLock);
-  if (i >= 0) actReq[i] = sec;
+  if (i < 0) return;
+  if (sec == 0) actStopReq[i] = true;      // seconds = 0: apagar ahora
+  else actReq[i] = sec;
 }
 
 // === WIFI ===
@@ -930,7 +1071,10 @@ void setup() {
   spillPending = fsOk && LittleFS.exists(SPILL);   // quedaron lecturas en flash de antes del reinicio
   Serial.printf("[FS] %s%s\n", fsOk ? "LittleFS OK" : "LittleFS FALLÓ (sin respaldo en flash)", spillPending ? " | hay lecturas pendientes" : "");
 
-  // Configuración guardada en flash (funciona sin red); si no hay, la de fábrica (sensores simulados)
+#ifdef USE_SERVO
+  for (int t = 0; t < 4; t++) ESP32PWM::allocateTimer(t);      // temporizadores LEDC para los servos
+#endif
+  // Configuración guardada en flash (funciona sin red); si no hay, la de fábrica (el hardware confirmado)
   String saved;
   if (fsOk && LittleFS.exists("/config.json")) { File f = LittleFS.open("/config.json", "r"); if (f) { saved = f.readString(); f.close(); } }
   if (saved.length() == 0 || applyConfig(saved) != 2) applyConfig(String(DEFAULT_CFG));
@@ -950,5 +1094,6 @@ void setup() {
 void loop() {
   server.handleClient();
   netTick();
+  oledTick();
   vTaskDelay(pdMS_TO_TICKS(3));
 }

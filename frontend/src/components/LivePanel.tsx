@@ -1,6 +1,7 @@
 import { fmt, fmtHours } from '../format'
 import type { LiveData } from '../live'
-import type { Suitability, TwinState, VarStatus } from '../types'
+import { kindOf, stateWord } from '../actuators'
+import type { CustomVar, Suitability, TwinState, VarStatus } from '../types'
 import { PumpControl } from './PumpControl'
 import { Sparkline } from './Sparkline'
 import { useEffect } from 'react'
@@ -79,12 +80,13 @@ function StageTrack({ s }: { s: NonNullable<TwinState['stage']> }) {
 }
 
 function SuitabilityBlock({ s }: { s: Suitability }) {
-  const worst = s.variables.filter((v) => v.status !== 'ok' && v.status !== 'n/a')
+  const shown = s.variables.filter((v) => v.id !== 'light' && v.score != null)   // lo que no se mide no se lista
+  const worst = shown.filter((v) => v.status !== 'ok' && v.status !== 'n/a')
   return (
     <section className="card" aria-labelledby="suit-h">
       <h2 id="suit-h">Aptitud para el cultivo</h2>
       <div className="bars">
-        {s.variables.map((v) => (
+        {shown.map((v) => (
           <div className="bar-row" key={v.id} title={v.optimal ? `Óptimo: ${v.optimal[0]}–${v.optimal[1]} ${v.unit}` : undefined}>
             <span>{v.label}</span>
             <div className="track" role="img" aria-label={`${v.label}: ${STATUS_TEXT[v.status]}`}>
@@ -99,9 +101,40 @@ function SuitabilityBlock({ s }: { s: Suitability }) {
   )
 }
 
+const CORNER: Record<string, string> = { nw: 'NO', ne: 'NE', sw: 'SO', se: 'SE' }
+
+/** Las 4 LDR en su lugar: arriba el norte, abajo el sur. Cada una con su barra de luz relativa (0-100 %). */
+function LdrGrid({ ldrs }: { ldrs: CustomVar[] }) {
+  const order = ['nw', 'ne', 'sw', 'se']
+  const cells = order.map((c) => ({ c, v: ldrs.find((x) => x.key === `ldr_${c}`) })).filter((x) => x.v)
+  if (!cells.length) return null
+  return (
+    <div className="ldr-grid" role="group" aria-label="Luz por esquina">
+      {cells.map(({ c, v }) => {
+        const val = typeof v!.value === 'number' ? v!.value : null
+        return (
+          <div className="ldr-cell" key={c} title={`Luz en la esquina ${CORNER[c]}`}>
+            <span>{CORNER[c]}</span>
+            <b>{val == null ? '—' : `${Math.round(val)} %`}</b>
+            <i aria-hidden="true"><u style={{ width: `${clamp(val)}%` }} /></i>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 function Content({ s }: { s: TwinState }) {
   const r = s.readings ?? {}
   const aw = s.soil?.aw_pct
+  // Solo se muestra lo que el equipo realmente mide: nada de pH/EC/NPK ni lux inventados.
+  const custom = s.custom ?? []
+  const ldrs = custom.filter((c) => c.key.startsWith('ldr_'))
+  const luz = custom.find((c) => c.key === 'luz_media')
+  const tank = custom.find((c) => c.key === 'tank_pct')
+  const apart = new Set(['luz_media', 'tank_pct', ...ldrs.map((c) => c.key)])
+  const rest = custom.filter((c) => !apart.has(c.key))
+  const tankPct = typeof tank?.value === 'number' ? Math.round(tank.value) : null
   return (
     <>
       <section className="card plant-card" id="card-plant">
@@ -135,38 +168,50 @@ function Content({ s }: { s: TwinState }) {
         <div className="tiles">
           <Tile icon="drop" tone="water" value={fmt(r.vwc_pct, 1, ' %')} label="Humedad del suelo" />
           <Tile icon="therm" tone="clay" value={fmt(r.soil_t, 1, ' °C')} label="Temp. del suelo" />
-          <Tile icon="flask" tone="leaf" value={fmt(r.ph, 1)} label="pH" />
-          <Tile icon="bolt" tone="sun" value={fmt(r.ec, 0, ' µS/cm')} label="Conductividad" />
+          {r.ph != null && <Tile icon="flask" tone="leaf" value={fmt(r.ph, 1)} label="pH" />}
+          {r.ec != null && <Tile icon="bolt" tone="sun" value={fmt(r.ec, 0, ' µS/cm')} label="Conductividad" />}
           <Tile icon="therm" tone="rose" value={fmt(r.air_t, 1, ' °C')} label="Temp. del aire" />
           <Tile icon="air" tone="water" value={fmt(r.air_rh, 0, ' %')} label="Humedad del aire" />
           <Tile icon="leaf" tone="leaf" value={fmt(r.vpd_kpa, 2, ' kPa')} label="VPD" />
-          <Tile icon="sun" tone="sun" value={r.lux == null ? '—' : `${Math.round(r.lux).toLocaleString('es-CO')} lx`} label="Luz" />
+          {typeof luz?.value === 'number' ? (
+            <Tile icon="sun" tone="sun" value={fmt(luz.value, 0, ' %')} label="Luz (4 LDR)" />
+          ) : !ldrs.length && r.lux != null ? (
+            <Tile icon="sun" tone="sun" value={`${Math.round(r.lux).toLocaleString('es-CO')} lx`} label="Luz" />
+          ) : null}
         </div>
         <div className="status-row">
-          <span className={'pill ' + (r.tank_ok === false ? 'high' : 'ok')}>Tanque {r.tank_ok == null ? '—' : r.tank_ok ? 'con agua' : 'vacío'}</span>
-          <span className={'pill ' + (r.pump_on ? 'water' : 'idle')}>Bomba {r.pump_on == null ? '—' : r.pump_on ? 'regando' : 'apagada'}</span>
+          {(tankPct != null || r.tank_ok != null) && (
+            <span className={'pill ' + (r.tank_ok === false ? 'high' : 'ok')}>
+              Tanque {tankPct != null ? `${tankPct} %` : r.tank_ok ? 'con agua' : 'vacío'}
+              {tankPct != null && r.tank_ok === false ? ' · bajo' : ''}
+            </span>
+          )}
+          {r.pump_on != null && <span className={'pill ' + (r.pump_on ? 'water' : 'idle')}>Bomba {r.pump_on ? 'regando' : 'apagada'}</span>}
         </div>
       </section>
 
-      {(!!s.custom?.length || !!s.actuators?.length) && (
+      {(!!rest.length || !!ldrs.length || !!s.actuators?.length) && (
         <section className="card" id="card-custom" aria-labelledby="cust-h">
-          <h2 id="cust-h">Variables e indicadores</h2>
-          <div className="tiles">
-            {s.custom?.map((c) => (
-              <Tile
-                key={c.key}
-                icon={c.kind === 'indicator' ? 'bolt' : 'leaf'}
-                tone={c.status === 'high' ? 'rose' : c.status === 'low' ? 'sun' : 'leaf'}
-                value={c.value == null ? '—' : typeof c.value === 'boolean' ? (c.value ? 'sí' : 'no') : `${fmt(c.value, Math.abs(c.value) >= 100 ? 0 : 2)}${c.unit ? ' ' + c.unit : ''}`}
-                label={c.label + (c.status === 'high' ? ' · alto' : c.status === 'low' ? ' · bajo' : '')}
-              />
-            ))}
-          </div>
+          <h2 id="cust-h">Sensores del equipo</h2>
+          <LdrGrid ldrs={ldrs} />
+          {!!rest.length && (
+            <div className="tiles">
+              {rest.map((c) => (
+                <Tile
+                  key={c.key}
+                  icon={c.kind === 'indicator' ? 'bolt' : 'leaf'}
+                  tone={c.status === 'high' ? 'rose' : c.status === 'low' ? 'sun' : 'leaf'}
+                  value={c.value == null ? '—' : typeof c.value === 'boolean' ? (c.value ? 'sí' : 'no') : `${fmt(c.value, Math.abs(c.value) >= 100 ? 0 : 2)}${c.unit ? ' ' + c.unit : ''}`}
+                  label={c.label + (c.status === 'high' ? ' · alto' : c.status === 'low' ? ' · bajo' : '')}
+                />
+              ))}
+            </div>
+          )}
           {!!s.actuators?.length && (
             <div className="status-row">
               {s.actuators.map((a) => (
                 <span key={a.key} className={'pill ' + (a.on ? 'water' : 'idle')}>
-                  {a.label} {a.on == null ? '—' : a.on ? 'activo' : 'apagado'}
+                  {a.label} {a.on == null ? '—' : stateWord(kindOf(a), a.on)}
                 </span>
               ))}
             </div>
@@ -213,7 +258,7 @@ function Content({ s }: { s: TwinState }) {
         </section>
       )}
 
-      <PumpControl deviceId={s.device_id} online={s.online} />
+      <PumpControl deviceId={s.device_id} online={s.online} actuators={s.actuators} />
     </>
   )
 }
@@ -298,9 +343,6 @@ export function LivePanel({ deviceId, live }: { deviceId: string | null; live: L
       ['Humedad', r.vwc_pct != null ? `${r.vwc_pct.toFixed(1)} %` : '–'],
       ['Suelo', r.soil_t != null ? `${r.soil_t.toFixed(1)} °C` : '–'],
       ['Aire', r.air_t != null ? `${r.air_t.toFixed(1)} °C · ${r.air_rh ?? '–'} %` : '–'],
-      ['pH', r.ph != null ? String(r.ph) : '–'],
-      ['EC', r.ec != null ? `${r.ec} µS` : '–'],
-      ['Luz', r.lux != null ? `${r.lux} lx` : '–'],
       ['Bomba', r.pump_on ? 'encendida' : 'apagada'],
     ]
     return (

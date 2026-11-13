@@ -16,7 +16,7 @@ from pydantic import ValidationError
 
 from . import backup
 from .config import settings
-from .devcfg import KEY_RE, COLUMN_KEYS, DERIVED_KEYS, eval_formula, load_config
+from .devcfg import KEY_RE, COLUMN_KEYS, DERIVED_KEYS, TANK_LOW_PCT, eval_formula, load_config
 from .kpis import vpd_kpa, vwc_pct
 from .schemas import Telemetry
 from .twin import schedule_state_publish
@@ -181,6 +181,9 @@ async def process_telemetry(app, device_id: str, t: Telemetry) -> datetime | Non
                     if v is not None:
                         extra[i["key"]] = v
                         env[i["key"]] = v
+                if t.tank_ok is None and isinstance(extra.get("tank_pct"), (int, float)):
+                    # el ultrasonido mide el nivel del tanque: por debajo del umbral se dispara la alerta de tanque bajo
+                    t = t.model_copy(update={"tank_ok": extra["tank_pct"] >= TANK_LOW_PCT})
                 args = telemetry_args(device_id, t, ts, dev["vwc_raw_dry"], dev["vwc_raw_wet"], extra)
             await con.execute(INSERT_TELEMETRY, *args)
             await backup.enqueue(con, device_id, ts)

@@ -202,8 +202,8 @@ export interface ActuatorState {
 }
 
 // ---- configuración editable del dispositivo (panel admin) ----
-export type SensorDriver = 'analog' | 'digital' | 'dht_t' | 'dht_h' | 'ds18b20' | 'bh1750' | 'simulated'
-export type ActuatorDriver = 'relay' | 'digital_out' | 'pwm'
+export type SensorDriver = 'analog' | 'dht_t' | 'dht_h' | 'ds18b20' | 'hcsr04' | 'simulated'
+export type ActuatorDriver = 'relay' | 'servo'
 export interface SensorCfg {
   key: string
   label: string
@@ -225,6 +225,8 @@ export interface ActuatorCfg {
   driver: ActuatorDriver
   pin: number | null
   active_high: boolean
+  angle_on: number
+  angle_off: number
   max_seconds: number
   auto_variable: string | null
   auto_on_below: number | null
@@ -243,6 +245,14 @@ export interface IndicatorCfg {
   max_ok: number | null
   enabled: boolean
 }
+/** Pantalla OLED 0.91" (SSD1306 128×32 por I2C). */
+export interface DisplayCfg {
+  enabled: boolean
+  driver: 'ssd1306_128x32'
+  address: number
+  show: string[]
+  rotate_s: number
+}
 export interface DeviceConfigFull {
   device_id: string
   version: number
@@ -250,6 +260,7 @@ export interface DeviceConfigFull {
   sensors: SensorCfg[]
   actuators: ActuatorCfg[]
   indicators: IndicatorCfg[]
+  display: DisplayCfg
   warnings?: string[]
 }
 export interface DriverInfo {

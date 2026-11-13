@@ -6,6 +6,7 @@ import { Overview, type SectionId } from './admin/Overview'
 import { Icon } from './admin/ui'
 import { NotebookPanel } from './NotebookPanel'
 
+const NO_DISPLAY: Cfg['display'] = { enabled: false, driver: 'ssd1306_128x32', address: 60, show: [], rotate_s: 4 }
 const KEY = 'simon.apikey'
 const readKey = () => {
   try {
@@ -78,7 +79,7 @@ export function AdminPanel() {
     if (!id) return
     try {
       const c = await getConfig(id)
-      const next: Cfg = { report_interval_s: c.report_interval_s, sensors: c.sensors, actuators: c.actuators, indicators: c.indicators }
+      const next: Cfg = { report_interval_s: c.report_interval_s, sensors: c.sensors, actuators: c.actuators, indicators: c.indicators, display: c.display ?? NO_DISPLAY }
       setCfg(next)
       setSaved(JSON.stringify(next))
       setVersion(c.version)
@@ -115,10 +116,10 @@ export function AdminPanel() {
 
   const loadHardware = async () => {
     if (!cfg) return
-    if (!window.confirm('Esto reemplaza los sensores, actuadores e indicadores de la lista por el hardware confirmado (aún no se guarda). ¿Continuar?')) return
+    if (!window.confirm('Esto reemplaza los sensores, actuadores, indicadores y la pantalla por el hardware confirmado (aún no se guarda). ¿Continuar?')) return
     try {
       const h = await getHardwarePreset()
-      patch({ report_interval_s: h.report_interval_s, sensors: h.sensors, actuators: h.actuators, indicators: h.indicators })
+      patch({ report_interval_s: h.report_interval_s, sensors: h.sensors, actuators: h.actuators, indicators: h.indicators, display: h.display ?? NO_DISPLAY })
       setMsg({ ok: true, text: 'Hardware confirmado cargado. Revisa los pines y pulsa Guardar.' })
     } catch (e) {
       setMsg({ ok: false, text: e instanceof Error ? e.message : 'No se pudo cargar' })
@@ -143,10 +144,10 @@ export function AdminPanel() {
     }
   }
 
-  const test = async (key: string) => {
+  const test = async (key: string, seconds: number) => {
     try {
-      await commandActuator(deviceId, key, 5, apiKey)
-      setMsg({ ok: true, text: `Orden enviada: ${key} 5 s.` })
+      await commandActuator(deviceId, key, seconds, apiKey)
+      setMsg({ ok: true, text: seconds === 0 ? `Orden enviada: ${key} apagar.` : `Orden enviada: ${key} ${seconds === 1 ? 'abrir' : seconds + ' s'}.` })
     } catch (e) {
       setMsg({ ok: false, text: (e as Error).message })
     }

@@ -57,6 +57,7 @@ ALTER TABLE telemetry ADD COLUMN IF NOT EXISTS extra JSONB;
 -- Configuración editable del dispositivo: la descarga el ESP32 (GET /devices/<id>/config)
 ALTER TABLE devices ADD COLUMN IF NOT EXISTS config_version INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE devices ADD COLUMN IF NOT EXISTS report_interval_s INTEGER NOT NULL DEFAULT 10;
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS display JSONB;
 
 CREATE TABLE IF NOT EXISTS device_sensors (
     id BIGSERIAL PRIMARY KEY,
@@ -88,6 +89,9 @@ CREATE TABLE IF NOT EXISTS device_indicators (
     min_ok DOUBLE PRECISION, max_ok DOUBLE PRECISION, enabled BOOLEAN NOT NULL DEFAULT TRUE,
     UNIQUE (device_id, key)
 );
+
+ALTER TABLE device_actuators ADD COLUMN IF NOT EXISTS angle_on INTEGER NOT NULL DEFAULT 90;
+ALTER TABLE device_actuators ADD COLUMN IF NOT EXISTS angle_off INTEGER NOT NULL DEFAULT 0;
 
 CREATE INDEX IF NOT EXISTS telemetry_device_ts_idx ON telemetry (device_id, ts DESC);
 

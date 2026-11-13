@@ -9,6 +9,7 @@ import type { SimRequest, TwinState } from '../types'
 import { pump } from '../api'
 import { gyro, useXr, xrRequest, setXr, detectAr } from '../xr'
 import { Icon } from './admin/ui'
+import { ActuatorDock } from './ActuatorDock'
 
 /** Frase en lenguaje llano con lo que más importa del cultivo. */
 export function statusPhrase(s: TwinState | null): { text: string; tone: 'ok' | 'warn' | 'bad' | 'idle' } {
@@ -232,6 +233,7 @@ export function MobileShell({ live, mode, onMode, deviceId, sim, quality, onQual
               </button>
             )}
           </div>
+          {mode === 'live' && <ActuatorDock variant="inline" deviceId={deviceId} online={!!s?.online} actuators={s?.actuators} exclude={['pump']} />}
           {askKey && (
             <form
               className="m-key"

@@ -32,12 +32,13 @@ export interface VisualActuator {
   key: string
   label: string
   on: boolean
-  kind: 'fan' | 'light' | 'heater' | 'humidifier' | 'valve' | 'generic'
+  kind: 'fan' | 'light' | 'heater' | 'humidifier' | 'valve' | 'servo' | 'generic'
 }
 
 /** Clasifica un actuador por su clave o nombre para elegir su modelo 3D y su efecto en la escena. */
 export function actuatorKind(key: string, label: string): VisualActuator['kind'] {
   const t = `${key} ${label}`.toLowerCase()
+  if (/servo/.test(t)) return 'servo'
   if (/ventil|fan|extractor|aire_?fors/.test(t)) return 'fan'
   if (/luz|light|l[aá]mpara|lamp|led|grow|foco/.test(t)) return 'light'
   if (/calef|heat|resist|hornill/.test(t)) return 'heater'
@@ -213,13 +214,16 @@ export function visualFromLive(s: TwinState | null, tel: (Telemetry & { _rx: num
 const BUILTIN: [keyof NonNullable<TwinState['readings']>, string, string][] = [
   ['vwc_pct', 'Humedad del suelo', '%'], ['soil_t', 'Temp. del suelo', '°C'], ['air_t', 'Temp. del aire', '°C'],
   ['air_rh', 'Humedad del aire', '%'], ['lux', 'Luz', 'lx'], ['ph', 'pH', ''], ['ec', 'EC', 'µS/cm'],
-  ['n', 'Nitrógeno', ''], ['p', 'Fósforo', ''], ['k', 'Potasio', ''], ['tank_ok', 'Tanque con agua', ''],
+  ['n', 'Nitrógeno', ''], ['p', 'Fósforo', ''], ['k', 'Potasio', ''],
 ]
 
 function liveSensors(s: TwinState): VisualSensor[] {
   const r = s.readings ?? {}
   const out: VisualSensor[] = []
+  // La luz de este equipo la miden las 4 LDR (en %): el valor en lux del servidor es una estimación para el modelo, no una lectura.
+  const hasLdr = (s.custom ?? []).some((c) => c.key.startsWith('ldr_'))
   for (const [k, label, unit] of BUILTIN) {
+    if (k === 'lux' && hasLdr) continue
     const v = r[k]
     if (v !== undefined && v !== null) out.push({ key: k, label, unit, value: v, status: null })
   }

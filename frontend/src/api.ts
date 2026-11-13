@@ -71,7 +71,7 @@ export const getCropParams = (id: string, signal?: AbortSignal) =>
 export const getRecommend = (id: string, drainage?: string, signal?: AbortSignal) =>
   request<RecommendResponse>(`/devices/${encodeURIComponent(id)}/recommend${drainage ? `?drainage=${drainage}` : ''}`, undefined, signal)
 export const getHardwarePreset = (signal?: AbortSignal) =>
-  request<Pick<DeviceConfigFull, 'report_interval_s' | 'sensors' | 'actuators' | 'indicators'>>('/catalog/hardware', undefined, signal)
+  request<Pick<DeviceConfigFull, 'report_interval_s' | 'sensors' | 'actuators' | 'indicators' | 'display'>>('/catalog/hardware', undefined, signal)
 export const getFit = (id: string, signal?: AbortSignal) =>
   request<FitResponse>(`/devices/${encodeURIComponent(id)}/identify`, undefined, signal)
 export const optimizeIrrigation = (id: string, simulation: SimRequest, signal?: AbortSignal) =>
@@ -113,6 +113,31 @@ export async function pump(id: string, seconds: number, apiKey: string): Promise
   }
 }
 
+/** Enciende un actuador N segundos (bomba, luz externa, servo) o lo apaga ya con seconds = 0. Sin nube va directo al ESP32. */
+export async function actuate(id: string, key: string, seconds: number, apiKey: string): Promise<void> {
+  const s = Math.max(0, Math.floor(seconds))
+  if (key === 'pump' && s > 0) {
+    await pump(id, s, apiKey)
+    return
+  }
+  if (localRoute.host) {
+    const r = await fetch(`http://${localRoute.host}/api/act?key=${encodeURIComponent(key)}&s=${s}`, { method: 'POST' })
+    if (!r.ok) throw new ApiError(r.status, `El ESP32 rechazó la orden (${r.status}).`)
+    return
+  }
+  try {
+    await commandActuator(id, key, s, apiKey)
+  } catch (e) {
+    if (e instanceof ApiError) {
+      if (e.status === 401) throw new ApiError(401, 'Clave rechazada (401): la API key es incorrecta.')
+      if (e.status === 409) throw new ApiError(409, 'El dispositivo está offline (409): no se puede ahora.')
+      if (e.status === 422) throw new ApiError(422, 'Esa duración supera el tope de seguridad del actuador (422).')
+      if (e.status === 503) throw new ApiError(503, 'El backend no tiene conexión con el broker MQTT (503).')
+    }
+    throw e
+  }
+}
+
 export interface HistoryPoint {
   t: string
   vwc_pct: number | null
@@ -136,7 +161,7 @@ export const getConfig = (id: string, signal?: AbortSignal) =>
 
 export async function putConfig(
   id: string,
-  cfg: Pick<DeviceConfigFull, 'report_interval_s' | 'sensors' | 'actuators' | 'indicators'>,
+  cfg: Pick<DeviceConfigFull, 'report_interval_s' | 'sensors' | 'actuators' | 'indicators' | 'display'>,
   apiKey: string,
 ): Promise<{ ok: boolean; version: number; warnings: string[] }> {
   try {

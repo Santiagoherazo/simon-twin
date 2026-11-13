@@ -1345,3 +1345,81 @@ code {
 .m-top .m-id { min-width: 0; margin-right: auto; }
 .m-top .m-id b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (prefers-reduced-motion: reduce) { .gear { transition: none; } .gear:hover { transform: none; } }
+
+/* ---------- 4 LDR: luz por esquina (datos en vivo) ---------- */
+.ldr-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.ldr-cell {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: baseline;
+  gap: 2px 8px;
+  padding: 9px 12px 12px;
+  background: var(--field);
+  border-radius: 14px;
+}
+.ldr-cell span { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; color: var(--ink-2); }
+.ldr-cell b { text-align: right; font-size: 17px; font-variant-numeric: tabular-nums; }
+.ldr-cell i {
+  grid-column: 1 / -1;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--track);
+  overflow: hidden;
+}
+.ldr-cell u { display: block; height: 100%; border-radius: inherit; background: var(--sun); text-decoration: none; transition: width 0.5s ease; }
+@media (prefers-reduced-motion: reduce) { .ldr-cell u { transition: none; } }
+
+/* ---------- control de actuadores sobre la animación ---------- */
+.act-dock { z-index: 7; display: grid; gap: 8px; }
+.act-dock.float { position: fixed; left: 16px; bottom: 62px; max-width: min(560px, calc(100vw - 480px)); }
+.act-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.act-item { position: relative; }
+.act-chip {
+  display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px 0 12px;
+  border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.85); color: #12261c; font: inherit; font-weight: 600; cursor: pointer;
+  background: rgba(255, 255, 255, 0.92); backdrop-filter: blur(24px) saturate(1.5); -webkit-backdrop-filter: blur(24px) saturate(1.5);
+  box-shadow: 0 1px 2px rgba(10, 30, 20, 0.08), 0 12px 32px -8px rgba(10, 30, 20, 0.28);
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+.act-chip:hover { transform: translateY(-1px); }
+.act-chip:focus-visible { outline: 2px solid var(--water); outline-offset: 2px; }
+.act-chip .act-dot { width: 9px; height: 9px; border-radius: 50%; background: #9aa8a0; flex: none; }
+.act-chip.on { background: #12261c; color: #fff; border-color: #12261c; }
+.act-chip.on .act-dot { background: #3ddc84; box-shadow: 0 0 0 3px rgba(61, 220, 132, 0.3); }
+.act-backdrop { position: fixed; inset: 0; z-index: -1; border: 0; background: transparent; cursor: default; }
+.act-pop {
+  position: absolute; bottom: calc(100% + 10px); left: 0; z-index: 3; min-width: 230px; display: grid; gap: 8px; padding: 12px;
+  border-radius: 16px; color: #12261c; background: rgba(255, 255, 255, 0.97);
+  box-shadow: 0 1px 2px rgba(10, 30, 20, 0.1), 0 20px 48px -12px rgba(10, 30, 20, 0.4);
+}
+.act-pop > b { font-size: 15px; }
+.act-pop small { color: #5a6a61; }
+.act-pop .act-warn { color: #a8321f; font-weight: 600; }
+.act-opts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.act-opts.two { grid-template-columns: 1fr 1fr; }
+.act-chip .act-state { font-style: normal; font-weight: 500; font-size: 12px; opacity: 0.75; }
+.act-pop button:not(.act-backdrop) {
+  min-height: 40px; padding: 0 8px; border-radius: 11px; border: 1px solid #d3dad4; background: #f4f6f3; color: #12261c; font: inherit; font-weight: 600; font-size: 13px; cursor: pointer;
+}
+.act-pop button:hover:not(:disabled) { background: #12261c; color: #fff; border-color: #12261c; }
+.act-pop button:disabled { opacity: 0.45; cursor: not-allowed; }
+.act-pop button.act-stop { background: #b3402f; border-color: #b3402f; color: #fff; }
+.act-pop button.act-stop:hover:not(:disabled) { background: #8f3224; border-color: #8f3224; color: #fff; }
+.act-key { display: grid; gap: 4px; font-size: 12px; font-weight: 700; color: #5a6a61; }
+.act-key input { min-height: 38px; padding: 0 10px; border-radius: 10px; border: 1px solid #d3dad4; font: inherit; }
+.act-msg { margin: 0; padding: 6px 12px; border-radius: 12px; width: fit-content; font-size: 13px; font-weight: 600; background: rgba(255, 255, 255, 0.95); color: #12261c; box-shadow: 0 8px 24px -8px rgba(10, 30, 20, 0.3); }
+.act-msg.err { color: #a8321f; }
+.act-msg.ok { color: #1f6b3f; }
+/* celular: dentro del panel inferior, el control se abre en línea (no flota) */
+.act-dock.inline { position: static; margin: 4px 0 2px; }
+.act-dock.inline .act-chip { min-height: 40px; }
+.act-dock.inline .act-item { position: static; }
+.act-dock.inline .act-pop { position: static; margin-top: 8px; width: 100%; background: var(--field); box-shadow: none; }
+.act-dock.inline .act-row { flex-direction: column; align-items: stretch; }
+@media (prefers-reduced-motion: reduce) { .act-chip { transition: none; } .act-chip:hover { transform: none; } }

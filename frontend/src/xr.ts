@@ -71,5 +71,21 @@ export const useFocus = () =>
     () => focus,
   )
 
+/** Clic en el modelo 3D de un actuador (luz, servo…): el dock de la pantalla principal abre su control. */
+let actPick: { key: string; n: number } | null = null
+const asubs = new Set<() => void>()
+export const pickActuator = (key: string | null) => {
+  actPick = key ? { key, n: (actPick?.n ?? 0) + 1 } : null
+  asubs.forEach((f) => f())
+}
+export const useActuatorPick = () =>
+  useSyncExternalStore(
+    (f) => {
+      asubs.add(f)
+      return () => asubs.delete(f)
+    },
+    () => actPick,
+  )
+
 /** Inclinación por giroscopio (-1..1), solo móvil. */
 export const gyro = { x: 0, y: 0, on: false }

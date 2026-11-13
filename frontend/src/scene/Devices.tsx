@@ -3,6 +3,7 @@ import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { getVisual, useVisual, type VisualActuator, type VisualSensor } from '../visual'
 import { reducedMotion } from './smooth'
+import { pickActuator } from '../xr'
 
 const STATUS_COL: Record<string, string> = { ok: '#4be08a', low: '#ffb020', high: '#ff6a4d' }
 
@@ -109,6 +110,7 @@ function Actuator({ index, act, x, z }: { index: number; act: VisualActuator; x:
   const led = useRef<THREE.MeshStandardMaterial>(null)
   const spin = useRef<THREE.Group>(null)
   const handle = useRef<THREE.Mesh>(null)
+  const horn = useRef<THREE.Group>(null)
   const glow = useRef<THREE.MeshStandardMaterial>(null)
   const k = useRef(0)
   useFrame((_, dtRaw) => {
@@ -123,10 +125,24 @@ function Actuator({ index, act, x, z }: { index: number; act: VisualActuator; x:
     }
     if (spin.current && !reducedMotion()) spin.current.rotation.z += dt * 22 * k.current
     if (handle.current) handle.current.rotation.z = (Math.PI / 2) * (1 - k.current)
+    if (horn.current) horn.current.rotation.z = -(Math.PI / 2) * k.current          // el brazo gira 90° al activarse
     if (glow.current) glow.current.emissiveIntensity = 3 * k.current
   })
   return (
-    <group position={[x, 0, z]}>
+    <group
+      position={[x, 0, z]}
+      onClick={(e) => {
+        e.stopPropagation()
+        pickActuator(act.key)
+      }}
+      onPointerOver={(e) => {
+        e.stopPropagation()
+        document.body.style.cursor = 'pointer'
+      }}
+      onPointerOut={() => {
+        document.body.style.cursor = ''
+      }}
+    >
       {act.kind === 'fan' && (
         <group position={[0, 0.8, 0]}>
           <mesh>
@@ -167,6 +183,17 @@ function Actuator({ index, act, x, z }: { index: number; act: VisualActuator; x:
           <mesh rotation-z={Math.PI / 2}><cylinderGeometry args={[0.14, 0.14, 1, 14]} /><meshStandardMaterial color="#b08d57" metalness={0.8} roughness={0.35} /></mesh>
           <mesh position={[0, 0.2, 0]}><boxGeometry args={[0.3, 0.3, 0.3]} /><meshStandardMaterial color="#b08d57" metalness={0.8} roughness={0.35} /></mesh>
           <mesh ref={handle} position={[0, 0.5, 0]}><boxGeometry args={[0.7, 0.07, 0.07]} /><meshStandardMaterial color="#c0392b" /></mesh>
+        </group>
+      )}
+      {act.kind === 'servo' && (
+        <group position={[0, 0.35, 0]}>
+          <mesh castShadow><boxGeometry args={[0.7, 0.4, 0.34]} /><meshStandardMaterial color="#2a5db0" roughness={0.45} /></mesh>
+          <mesh position={[0.46, 0, 0]}><boxGeometry args={[0.22, 0.06, 0.34]} /><meshStandardMaterial color="#2a5db0" roughness={0.45} /></mesh>
+          <mesh position={[-0.46, 0, 0]}><boxGeometry args={[0.22, 0.06, 0.34]} /><meshStandardMaterial color="#2a5db0" roughness={0.45} /></mesh>
+          <mesh position={[0.14, 0.24, 0]}><cylinderGeometry args={[0.1, 0.1, 0.1, 18]} /><meshStandardMaterial color="#dfe4e8" metalness={0.4} roughness={0.4} /></mesh>
+          <group ref={horn} position={[0.14, 0.32, 0]}>
+            <mesh position={[0.42, 0, 0]}><boxGeometry args={[0.84, 0.035, 0.56]} /><meshStandardMaterial color="#f2f4f6" roughness={0.55} transparent opacity={0.92} /></mesh>
+          </group>
         </group>
       )}
       {act.kind === 'generic' && (

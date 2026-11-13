@@ -12,7 +12,7 @@ from datetime import date, datetime, timezone
 import asyncpg
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from .config import settings
 from .crops import get_crop, load_profiles
@@ -20,7 +20,7 @@ from .backup import backfill, backup_loop, pending as backup_pending, pull_inbox
 from .backup import drain as backup_drain
 from .cache import Cache, key_hash
 from . import notebook as nbk
-from .devcfg import DRIVER_CATALOG, DeviceConfig, load_config, pin_warnings, save_config
+from .devcfg import DRIVER_CATALOG, DeviceConfig, legacy_warnings, load_config, pin_warnings, save_config
 from .migrate import migrate, seed_device_configs
 from .ingest import ensure_device, mqtt_loop, process_telemetry, telemetry_args
 from .schemas import (
@@ -445,7 +445,7 @@ async def catalog():
 
 @app.get("/catalog/hardware")
 async def catalog_hardware():
-    """Configuración lista del hardware confirmado (DHT11, suelo + DS18B20, 4 LDR, bomba y relé 2)."""
+    """Configuración lista del hardware confirmado (DHT11, suelo + DS18B20, 4 LDR, ultrasonido, bomba, luz externa, servo y OLED)."""
     from .devcfg import config_hardware_confirmado
     return config_hardware_confirmado().model_dump()
 
@@ -464,7 +464,10 @@ async def device_config(device_id: str, v: int | None = None, full: bool = False
         cfg["actuators"] = [a for a in cfg["actuators"] if a["enabled"]]
         cfg.pop("indicators", None)       # los indicadores los calcula el servidor
     else:
-        cfg["warnings"] = pin_warnings(DeviceConfig.model_validate({k: cfg[k] for k in ("report_interval_s", "sensors", "actuators", "indicators")}))
+        try:
+            cfg["warnings"] = pin_warnings(DeviceConfig.model_validate({k: cfg[k] for k in ("report_interval_s", "sensors", "actuators", "indicators", "display")}))
+        except ValidationError:       # quedó guardado hardware que ya no se soporta: se avisa en vez de fallar
+            cfg["warnings"] = legacy_warnings(cfg) or ["La configuración guardada no es válida: revisa los pines y vuelve a guardar."]
     return cfg
 
 
@@ -482,12 +485,12 @@ async def put_device_config(device_id: str, body: DeviceConfig):
 
 
 class ActuatorCommand(BaseModel):
-    seconds: int = Field(ge=1, le=3600)
+    seconds: int = Field(ge=0, le=3600, description="0 = apagar ahora")
 
 
 @app.post("/devices/{device_id}/actuators/{key}/command", dependencies=[Depends(require_api_key)])
 async def actuator_command(device_id: str, key: str, body: ActuatorCommand):
-    """Enciende un actuador N segundos (topic simon/<id>/cmd/<key>). El firmware aplica además su tope de seguridad."""
+    """Enciende un actuador N segundos, o lo apaga ya con seconds=0 (topic simon/<id>/cmd/<key>). El firmware aplica además su tope de seguridad."""
     cfg = await load_config(app.state.pool, device_id)
     if cfg is None:
         raise HTTPException(404, "dispositivo desconocido")
