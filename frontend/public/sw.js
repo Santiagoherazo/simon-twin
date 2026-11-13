@@ -1,6 +1,6 @@
 // Service worker mínimo: la interfaz (HTML, JS, CSS, íconos) queda en caché para abrir al instante y sin red.
 // Las llamadas al backend y MQTT NO se cachean: los datos siempre son en vivo.
-const CACHE = 'simon-shell-v1'
+const CACHE = 'simon-shell-v2'
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(['/', '/manifest.webmanifest', '/icons/icon-192.png'])).then(() => self.skipWaiting()))
 })
@@ -18,8 +18,13 @@ self.addEventListener('fetch', (e) => {
     // red primero para ver siempre la versión nueva; sin red, la copia guardada
     e.respondWith(fetch(req).then((r) => { const cp = r.clone(); caches.open(CACHE).then((c) => c.put('/', cp)); return r }).catch(() => caches.match('/')))
   } else if (isAsset) {
+    // stale-while-revalidate: sirve la copia guardada al instante y actualiza en segundo plano,
+    // para que las nuevas versiones se propaguen sin quedarse pegadas en una build vieja.
     e.respondWith(
-      caches.match(req).then((hit) => hit || fetch(req).then((r) => { const cp = r.clone(); caches.open(CACHE).then((c) => c.put(req, cp)); return r })),
+      caches.match(req).then((hit) => {
+        const network = fetch(req).then((r) => { const cp = r.clone(); caches.open(CACHE).then((c) => c.put(req, cp)); return r }).catch(() => hit)
+        return hit || network
+      }),
     )
   }
 })
