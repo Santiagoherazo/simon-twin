@@ -9,7 +9,8 @@ import { DEFAULT_DEVICE, MISCONFIGURED } from './config'
 import { useLive } from './live'
 import { useFailover } from './local'
 import { NetBanner } from './components/NetBanner'
-import { initialQuality, QUALITY_ORDER, saveQuality, type Quality } from './scene/quality'
+import { initialPref, lowerQuality, PREF_ORDER, savePref, type Quality, type QualityPref } from './scene/quality'
+import { useDevice } from './components/DeviceDetector'
 import { reducedMotion } from './scene/smooth'
 import { Scene } from './scene/Scene'
 import type { CropInfo, DeviceInfo, SimRequest, SimResponse, SoilCatalogItem } from './types'
@@ -45,18 +46,25 @@ function Twin() {
   const [crops, setCrops] = useState<CropInfo[]>([])
   const [soils, setSoils] = useState<SoilCatalogItem[]>([])
   const [tick, setTick] = useState(0)
-  const [quality, setQualityState] = useState<Quality>(initialQuality)
-  const setQuality = useCallback((q: Quality) => {
-    setQualityState(q)
-    saveQuality(q)
+  // Gráficos: «auto» usa lo que sugiere el tipo de equipo (PC = alta, tableta = media, celular = sin 3D).
+  // Si la escena va lenta se baja un escalón solo en esta visita; si la persona eligió un nivel, ese sí se guarda.
+  const device = useDevice()
+  const [pref, setPrefState] = useState<QualityPref>(initialPref)
+  const [slowed, setSlowed] = useState<Quality | null>(null)
+  const quality: Quality = pref === 'auto' ? (slowed ?? device.suggested) : pref
+  const setQuality = useCallback((p: QualityPref) => {
+    setPrefState(p)
+    setSlowed(null)
+    savePref(p)
   }, [])
   const dropQuality = useCallback(() => {
-    setQualityState((q) => {
-      const next = QUALITY_ORDER[Math.min(QUALITY_ORDER.length - 1, QUALITY_ORDER.indexOf(q) + 1)]
-      if (next !== q) saveQuality(next)
-      return next
-    })
-  }, [])
+    if (pref === 'auto') setSlowed((cur) => lowerQuality(cur ?? device.suggested))
+    else {
+      const next = lowerQuality(pref)
+      if (next !== pref) setQuality(next)
+    }
+  }, [pref, device.suggested, setQuality])
+  const tooSlow = useCallback(() => (pref === 'auto' ? setSlowed('off') : setQuality('off')), [pref, setQuality])
 
   const cloudLive = useLive(deviceId)
   const { live, net } = useFailover(deviceId, cloudLive)
@@ -205,7 +213,7 @@ function Twin() {
       if (k === 'l') changeMode('live')
       else if (k === 's') setMode('sim')
       else if (k === ',') location.hash = '#/admin'
-      else if (k === 'g') setQuality(QUALITY_ORDER[(QUALITY_ORDER.indexOf(quality) + 1) % QUALITY_ORDER.length])
+      else if (k === 'g') setQuality(PREF_ORDER[(PREF_ORDER.indexOf(pref) + 1) % PREF_ORDER.length])
       else if (k === ' ' && mode === 'sim' && sim) {
         e.preventDefault()
         setPlaying((p) => !p)
@@ -214,7 +222,7 @@ function Twin() {
     window.addEventListener('keydown', f)
     return () => window.removeEventListener('keydown', f)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [narrow, quality, mode, sim])
+  }, [narrow, pref, mode, sim])
 
   return (
     <div className={'app ' + (narrow ? 'shell-mobile' : 'shell-desktop')}>
@@ -225,7 +233,7 @@ function Twin() {
       )}
       <div className={'scene' + (quality === 'off' ? ' scene-static' : '')}>
         {quality !== 'off' && (
-          <Scene narrow={narrow} quality={quality} onQualityDrop={dropQuality} onTooSlow={() => setQuality('off')} shiftPx={narrow ? 0 : Math.min(400, Math.max(0, winW - 1000) * 0.5 + 220)} />
+          <Scene narrow={narrow} quality={quality} onQualityDrop={dropQuality} onTooSlow={tooSlow} shiftPx={narrow ? 0 : Math.min(400, Math.max(0, winW - 1000) * 0.5 + 220)} />
         )}
       </div>
       <NetBanner net={net} />
@@ -240,6 +248,7 @@ function Twin() {
             mode={mode}
             onMode={changeMode}
             quality={quality}
+            pref={pref}
             onQuality={setQuality}
             live={live}
             ageS={live.state?.age_s != null ? live.state.age_s + (live.stateRx ? (performance.now() - live.stateRx) / 1000 : 0) : ageS}
@@ -248,26 +257,25 @@ function Twin() {
             {mode === 'live' ? <LivePanel deviceId={deviceId} live={live} /> : <div className="card sim-card"><SimPanel {...simProps} /></div>}
           </aside>
           {mode === 'live' && <ActuatorDock deviceId={deviceId} online={!!live.state?.online} actuators={live.state?.actuators} />}
-          <div className="keys" aria-label="Atajos de teclado">
-            <kbd>L</kbd> en vivo <kbd>S</kbd> simulación <kbd>G</kbd> gráficos <kbd>,</kbd> configuración <kbd>␣</kbd> reproducir · clic en la maceta, la planta o el tanque
-          </div>
         </>
       )}
     </div>
   )
 }
 
-const isConfigRoute = () => location.pathname === '/config' || location.pathname === '/admin' || location.hash.startsWith('#/config') || location.hash.startsWith('#/admin')
+const isAdminRoute = () =>
+  location.pathname === '/config' || location.pathname === '/admin' ||
+  location.hash.startsWith('#/config') || location.hash.startsWith('#/admin')
 
-/** Ruta mínima: /config abre el panel de configuración (#/admin compatible); el resto es el gemelo. */
+/** #/admin (y /config, /admin para enlaces directos) abre el panel administrativo; el resto es el gemelo. */
 export default function App() {
-  const [config, setConfig] = useState(isConfigRoute())
+  const [admin, setAdmin] = useState(isAdminRoute)
   useEffect(() => {
-    const f = () => setConfig(isConfigRoute())
+    const f = () => setAdmin(isAdminRoute)
     window.addEventListener('hashchange', f); window.addEventListener('popstate', f)
-    return () => window.removeEventListener('hashchange', f); window.removeEventListener('popstate', f)
+    return () => { window.removeEventListener('hashchange', f); window.removeEventListener('popstate', f) }
   }, [])
-  return config ? (
+  return admin ? (
     <Suspense fallback={<div className="admin-boot" role="status">Abriendo configuración…</div>}>
       <AdminPanel />
     </Suspense>

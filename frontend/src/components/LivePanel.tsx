@@ -1,8 +1,8 @@
 import { fmt, fmtHours } from '../format'
 import type { LiveData } from '../live'
 import { kindOf, stateWord } from '../actuators'
+import { statusPhrase } from '../status'
 import type { CustomVar, Suitability, TwinState, VarStatus } from '../types'
-import { PumpControl } from './PumpControl'
 import { Sparkline } from './Sparkline'
 import { useEffect } from 'react'
 import { useFocus } from '../xr'
@@ -18,52 +18,72 @@ const STATUS_TEXT: Record<VarStatus, string> = { ok: 'en rango', low: 'bajo', hi
 const clamp = (v: number | null | undefined) => Math.min(100, Math.max(0, v ?? 0))
 
 /** Anillo medidor: arco de color sobre pista suave, número grande al centro. */
-function Ring({ value, label, color, suffix = '%' }: { value: number | null | undefined; label: string; color: string; suffix?: string }) {
-  const R = 30
+function Ring({ value, label, color, size = 76, stroke = 8 }: { value: number | null | undefined; label: string; color: string; size?: number; stroke?: number }) {
+  const R = (size - stroke) / 2
   const C = 2 * Math.PI * R
+  const m = size / 2
   return (
-    <div className="ringbox" role="img" aria-label={`${label}: ${fmt(value, 0, ' ' + suffix)}`}>
-      <svg viewBox="0 0 76 76" width="76" height="76" aria-hidden="true">
-        <circle cx="38" cy="38" r={R} fill="none" stroke="var(--track)" strokeWidth="8" />
-        <circle
-          cx="38"
-          cy="38"
-          r={R}
-          fill="none"
-          stroke={color}
-          strokeWidth="8"
-          strokeLinecap="round"
-          strokeDasharray={`${(clamp(value) / 100) * C} ${C}`}
-          transform="rotate(-90 38 38)"
-        />
+    <div className="ringbox" style={{ width: size }} role="img" aria-label={`${label}: ${fmt(value, 0, ' %')}`}>
+      <svg viewBox={`0 0 ${size} ${size}`} width={size} height={size} aria-hidden="true">
+        <circle cx={m} cy={m} r={R} fill="none" stroke="var(--line)" strokeWidth={stroke} />
+        <circle cx={m} cy={m} r={R} fill="none" stroke={color} strokeWidth={stroke} strokeLinecap="round" strokeDasharray={`${(clamp(value) / 100) * C} ${C}`} transform={`rotate(-90 ${m} ${m})`} />
       </svg>
-      <b>{value == null ? '—' : Math.round(value)}<small>{suffix}</small></b>
-      <span>{label}</span>
+      <b>
+        <span className="n">
+          {value == null ? '—' : Math.round(value)}
+          {value != null && <small>%</small>}
+        </span>
+      </b>
     </div>
   )
 }
 
-const I = {
-  drop: 'M12 3c3.5 4.4 6 7.4 6 10.5A6 6 0 0 1 6 13.5C6 10.4 8.5 7.4 12 3z',
-  therm: 'M10 14.5V5a2 2 0 1 1 4 0v9.5a4 4 0 1 1-4 0z',
-  sun: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1',
-  air: 'M3 9h11a3 3 0 1 0-3-3M3 15h15a3 3 0 1 1-3 3M3 12h7',
-  leaf: 'M5 19c0-8 5-13 14-14 0 9-5 14-13 14zM5 19l7-7',
-  bolt: 'M13 2L5 13h6l-1 9 8-11h-6l1-9z',
-  flask: 'M9 3h6M10 3v6l-5 9a2 2 0 0 0 2 3h10a2 2 0 0 0 2-3l-5-9V3',
+type Tone = 'water' | 'sun' | 'earth' | 'leaf' | 'crit'
+
+/** Sección de la ficha: cada subsistema conserva su color (agua azul, luz ámbar, suelo y aire madera). */
+function Section({ id, tone, title, aside, children }: { id?: string; tone: Tone; title: string; aside?: string; children: React.ReactNode }) {
+  const hid = `${id ?? tone}-h`
+  return (
+    <section className={'sec tone-' + tone} id={id} aria-labelledby={hid}>
+      <h2 id={hid}>
+        {title}
+        {aside && <span className="aside">{aside}</span>}
+      </h2>
+      {children}
+    </section>
+  )
 }
 
-function Tile({ icon, tone, value, label }: { icon: keyof typeof I; tone: string; value: string; label: string }) {
+/** Lectura: número grande con su unidad, la etiqueta debajo y un punto si está fuera de rango. */
+function Read({ v, u, label, flag, wide }: { v: string; u?: string; label: string; flag?: 'low' | 'high' | null; wide?: boolean }) {
   return (
-    <div className="tile">
-      <i className={'ico ' + tone} aria-hidden="true">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d={I[icon]} />
-        </svg>
-      </i>
-      <b>{value}</b>
-      <small>{label}</small>
+    <div className={'read' + (wide ? ' wide' : '')}>
+      <div className="v">
+        {v}
+        {u && v !== '—' && <span className="u">{u}</span>}
+      </div>
+      <div className="l">
+        {flag && <i className={'flag ' + flag} aria-hidden="true" />}
+        {label}
+        {flag && <span className="sr">{flag === 'low' ? ' (bajo)' : ' (alto)'}</span>}
+      </div>
     </div>
+  )
+}
+
+/** Estado de los actuadores de un subsistema, con el color de ese subsistema cuando están activos. */
+function States({ items }: { items: { key: string; label: string; kind: ReturnType<typeof kindOf>; on: boolean | null | undefined }[] }) {
+  if (!items.length) return null
+  return (
+    <ul className="states">
+      {items.map((a) => (
+        <li key={a.key} className={a.on ? 'on' : ''}>
+          <i className={'dot' + (a.on ? ' on' : '')} aria-hidden="true" />
+          {a.label}
+          <b>{a.on == null ? '—' : stateWord(a.kind, a.on)}</b>
+        </li>
+      ))}
+    </ul>
   )
 }
 
@@ -103,20 +123,21 @@ function SuitabilityBlock({ s }: { s: Suitability }) {
 
 const CORNER: Record<string, string> = { nw: 'NO', ne: 'NE', sw: 'SO', se: 'SE' }
 
-/** Las 4 LDR en su lugar: arriba el norte, abajo el sur. Cada una con su barra de luz relativa (0-100 %). */
-function LdrGrid({ ldrs }: { ldrs: CustomVar[] }) {
-  const order = ['nw', 'ne', 'sw', 'se']
-  const cells = order.map((c) => ({ c, v: ldrs.find((x) => x.key === `ldr_${c}`) })).filter((x) => x.v)
+/** Las 4 LDR vistas desde arriba (norte arriba): cada esquina brilla según la luz que recibe. */
+function LdrPlan({ ldrs }: { ldrs: CustomVar[] }) {
+  const cells = ['nw', 'ne', 'sw', 'se'].map((c) => ({ c, v: ldrs.find((x) => x.key === `ldr_${c}`) })).filter((x) => x.v)
   if (!cells.length) return null
   return (
-    <div className="ldr-grid" role="group" aria-label="Luz por esquina">
+    <div className="ldr-plan" role="group" aria-label="Luz por esquina, vista desde arriba">
       {cells.map(({ c, v }) => {
         const val = typeof v!.value === 'number' ? v!.value : null
         return (
-          <div className="ldr-cell" key={c} title={`Luz en la esquina ${CORNER[c]}`}>
+          <div className="ldr-c" key={c} style={{ ['--lv' as string]: clamp(val) / 100 }} title={`Luz en la esquina ${CORNER[c]}`}>
             <span>{CORNER[c]}</span>
-            <b>{val == null ? '—' : `${Math.round(val)} %`}</b>
-            <i aria-hidden="true"><u style={{ width: `${clamp(val)}%` }} /></i>
+            <b>
+              {val == null ? '—' : Math.round(val)}
+              <small>{val == null ? '' : ' %'}</small>
+            </b>
           </div>
         )
       })}
@@ -135,130 +156,127 @@ function Content({ s }: { s: TwinState }) {
   const apart = new Set(['luz_media', 'tank_pct', ...ldrs.map((c) => c.key)])
   const rest = custom.filter((c) => !apart.has(c.key))
   const tankPct = typeof tank?.value === 'number' ? Math.round(tank.value) : null
+  const flagOf = (st: string | null | undefined) => (st === 'high' ? 'high' : st === 'low' ? 'low' : null)
+  const acts = (s.actuators ?? []).map((a) => ({ key: a.key, label: a.label, kind: kindOf(a), on: a.on }))
+  // Si el equipo no reporta la bomba como actuador, se usa la lectura suelta pump_on
+  const waterActs = acts.filter((a) => a.kind === 'pump')
+  if (!waterActs.length && r.pump_on != null) waterActs.push({ key: 'pump', label: 'Mini bomba', kind: 'pump', on: r.pump_on })
+  const lightActs = acts.filter((a) => a.kind !== 'pump')
+  const showLight = ldrs.length > 0 || typeof luz?.value === 'number' || r.lux != null || lightActs.length > 0
+  const phrase = statusPhrase(s)
+  const tankRead = tankPct != null ? { v: String(tankPct), u: '%' } : r.tank_ok != null ? { v: r.tank_ok ? 'Con agua' : 'Vacío', u: '' } : null
   return (
     <>
-      <section className="card plant-card" id="card-plant">
-        <div className="plant-head">
-          <div>
-            <h3>{s.crop?.name ?? 'Cultivo'}</h3>
-            <span className="muted">{s.soil_type?.name ?? 'Suelo'}</span>
+      <section className="sec hero" id="card-plant" aria-labelledby="crop-h">
+        <div className="hero-top">
+          <div className="hero-id">
+            <h2 id="crop-h" className="crop">{s.crop?.name ?? 'Cultivo'}</h2>
+            <p className="hero-sub">
+              {s.stage?.name ?? 'Etapa sin definir'}
+              {s.stage && s.stage.days_since_sowing != null ? `, día ${s.stage.days_since_sowing}` : ''}
+            </p>
           </div>
-          {s.stage && <span className="stage-chip">{s.stage.name}</span>}
+          <Ring value={s.suitability?.overall} label="Aptitud del cultivo" color="var(--leaf)" size={92} stroke={9} />
         </div>
+        <p className={'hero-status ' + phrase.tone} role="status">
+          <i className="dot" aria-hidden="true" />
+          {phrase.text}
+        </p>
         {s.stage && <StageTrack s={s.stage} />}
-        {s.stage && (
-          <div className="plant-meta">
-            <span>
-              <b>{s.stage.days_since_sowing ?? '—'}</b> días de siembra
-            </span>
-            <span>
-              <b>{fmt(s.plant?.height_cm, 0)}</b> cm de alto
-            </span>
-          </div>
-        )}
-        <div className="rings">
-          <Ring value={aw} label="Agua útil" color="var(--water)" />
-          <Ring value={s.suitability?.overall} label="Aptitud" color="var(--moss)" />
-          <Ring value={s.stage?.progress_pct} label="Etapa" color="var(--sun)" />
-        </div>
+        <p className="hero-meta">
+          Aptitud {fmt(s.suitability?.overall, 0)} %, etapa {s.stage ? fmt(s.stage.progress_pct, 0) : '—'} %
+          {s.plant?.height_cm != null ? `, ${fmt(s.plant.height_cm, 0)} cm de alto` : ''}. Suelo {s.soil_type?.name?.toLowerCase() ?? 'sin definir'}.
+        </p>
       </section>
-
-      <section className="card" id="card-soil" aria-labelledby="read-h">
-        <h2 id="read-h">Suelo y aire</h2>
-        <div className="tiles">
-          <Tile icon="drop" tone="water" value={fmt(r.vwc_pct, 1, ' %')} label="Humedad del suelo" />
-          <Tile icon="therm" tone="clay" value={fmt(r.soil_t, 1, ' °C')} label="Temp. del suelo" />
-          {r.ph != null && <Tile icon="flask" tone="leaf" value={fmt(r.ph, 1)} label="pH" />}
-          {r.ec != null && <Tile icon="bolt" tone="sun" value={fmt(r.ec, 0, ' µS/cm')} label="Conductividad" />}
-          <Tile icon="therm" tone="rose" value={fmt(r.air_t, 1, ' °C')} label="Temp. del aire" />
-          <Tile icon="air" tone="water" value={fmt(r.air_rh, 0, ' %')} label="Humedad del aire" />
-          <Tile icon="leaf" tone="leaf" value={fmt(r.vpd_kpa, 2, ' kPa')} label="VPD" />
-          {typeof luz?.value === 'number' ? (
-            <Tile icon="sun" tone="sun" value={fmt(luz.value, 0, ' %')} label="Luz (4 LDR)" />
-          ) : !ldrs.length && r.lux != null ? (
-            <Tile icon="sun" tone="sun" value={`${Math.round(r.lux).toLocaleString('es-CO')} lx`} label="Luz" />
-          ) : null}
-        </div>
-        <div className="status-row">
-          {(tankPct != null || r.tank_ok != null) && (
-            <span className={'pill ' + (r.tank_ok === false ? 'high' : 'ok')}>
-              Tanque {tankPct != null ? `${tankPct} %` : r.tank_ok ? 'con agua' : 'vacío'}
-              {tankPct != null && r.tank_ok === false ? ' · bajo' : ''}
-            </span>
-          )}
-          {r.pump_on != null && <span className={'pill ' + (r.pump_on ? 'water' : 'idle')}>Bomba {r.pump_on ? 'regando' : 'apagada'}</span>}
-        </div>
-      </section>
-
-      {(!!rest.length || !!ldrs.length || !!s.actuators?.length) && (
-        <section className="card" id="card-custom" aria-labelledby="cust-h">
-          <h2 id="cust-h">Sensores del equipo</h2>
-          <LdrGrid ldrs={ldrs} />
-          {!!rest.length && (
-            <div className="tiles">
-              {rest.map((c) => (
-                <Tile
-                  key={c.key}
-                  icon={c.kind === 'indicator' ? 'bolt' : 'leaf'}
-                  tone={c.status === 'high' ? 'rose' : c.status === 'low' ? 'sun' : 'leaf'}
-                  value={c.value == null ? '—' : typeof c.value === 'boolean' ? (c.value ? 'sí' : 'no') : `${fmt(c.value, Math.abs(c.value) >= 100 ? 0 : 2)}${c.unit ? ' ' + c.unit : ''}`}
-                  label={c.label + (c.status === 'high' ? ' · alto' : c.status === 'low' ? ' · bajo' : '')}
-                />
-              ))}
-            </div>
-          )}
-          {!!s.actuators?.length && (
-            <div className="status-row">
-              {s.actuators.map((a) => (
-                <span key={a.key} className={'pill ' + (a.on ? 'water' : 'idle')}>
-                  {a.label} {a.on == null ? '—' : stateWord(kindOf(a), a.on)}
-                </span>
-              ))}
-            </div>
-          )}
-        </section>
-      )}
-
-      {s.prediction && (
-        <section className="card pred" aria-labelledby="pred-h">
-          <h2 id="pred-h">Próximo riego</h2>
-          <b className="big">{s.soil?.needs_irrigation ? 'Ya conviene regar' : fmtHours(s.prediction.hours_to_irrigation)}</b>
-          <span className="muted">
-            Pronóstico de {s.prediction.horizon_h} h
-            {s.prediction.et_scale != null ? ` · consumo calibrado ×${fmt(s.prediction.et_scale, 2)}` : ''}
-          </span>
-        </section>
-      )}
-
-      {s.health && <HealthBlockCard h={s.health} />}
-
-      <Sparkline deviceId={s.device_id} />
-
-      {s.suitability && <SuitabilityBlock s={s.suitability} />}
 
       {!!s.alerts?.length && (
-        <section className="card" aria-labelledby="al-h">
-          <h2 id="al-h">Alertas</h2>
+        <section className="sec tone-crit" aria-labelledby="al-h">
+          <h2 id="al-h">
+            Alertas
+            <span className="aside">{s.alerts.length}</span>
+          </h2>
           <ul className="alerts">
             {s.alerts.map((a) => (
               <li key={a.code} className={a.level}>
-                {a.title ? (
-                  <>
-                    <b>{a.title}</b>
-                    {a.cause && <span className="al-line">{a.cause}</span>}
-                    {a.consequence && <span className="al-line">→ {a.consequence}</span>}
-                    {a.action && <span className="al-line al-act">Qué hacer: {a.action}</span>}
-                  </>
-                ) : (
-                  a.message
-                )}
+                <i className="al-dot" aria-hidden="true" />
+                <div>
+                  {a.title ? (
+                    <>
+                      <b>{a.title}</b>
+                      {a.cause && <span className="al-line">{a.cause}</span>}
+                      {a.consequence && <span className="al-line">{a.consequence}</span>}
+                      {a.action && <span className="al-line al-act">Qué hacer: {a.action}</span>}
+                    </>
+                  ) : (
+                    a.message
+                  )}
+                </div>
               </li>
             ))}
           </ul>
         </section>
       )}
 
-      <PumpControl deviceId={s.device_id} online={s.online} actuators={s.actuators} />
+      <Section id="card-tank" tone="water" title="Agua">
+        <div className="reads">
+          <Read v={fmt(r.vwc_pct, 1)} u="%" label="Humedad del suelo" />
+          {tankRead && <Read v={tankRead.v} u={tankRead.u} label="Nivel del tanque" flag={r.tank_ok === false ? 'low' : null} />}
+        </div>
+        {aw != null && (
+          <div className="meter" role="img" aria-label={`Agua útil: ${fmt(aw, 0, ' %')}`}>
+            <span>Agua útil para la raíz</span>
+            <b>{fmt(aw, 0)}<small>%</small></b>
+            <i aria-hidden="true"><u style={{ width: `${clamp(aw)}%` }} /></i>
+          </div>
+        )}
+        <States items={waterActs} />
+        {s.prediction && (
+          <p className="line">
+            Próximo riego: <b>{s.soil?.needs_irrigation ? 'ya conviene regar' : fmtHours(s.prediction.hours_to_irrigation)}</b>
+            {s.prediction.et_scale != null ? `, consumo calibrado ×${fmt(s.prediction.et_scale, 2)}` : ''}.
+          </p>
+        )}
+      </Section>
+
+      {showLight && (
+        <Section tone="sun" title="Luz">
+          <LdrPlan ldrs={ldrs} />
+          <div className="reads">
+            {typeof luz?.value === 'number' ? (
+              <Read v={fmt(luz.value, 0)} u="%" label="Luz media de las 4 esquinas" wide />
+            ) : !ldrs.length && r.lux != null ? (
+              <Read v={Math.round(r.lux).toLocaleString('es-CO')} u="lx" label="Luz" wide />
+            ) : null}
+          </div>
+          <States items={lightActs} />
+        </Section>
+      )}
+
+      <Section id="card-soil" tone="earth" title="Suelo y aire">
+        <div className="reads">
+          <Read v={fmt(r.soil_t, 1)} u="°C" label="Temp. del suelo" />
+          <Read v={fmt(r.air_t, 1)} u="°C" label="Temp. del aire" />
+          <Read v={fmt(r.air_rh, 0)} u="%" label="Humedad del aire" />
+          <Read v={fmt(r.vpd_kpa, 2)} u="kPa" label="Déficit de vapor (VPD)" />
+          {r.ph != null && <Read v={fmt(r.ph, 1)} label="pH" />}
+          {r.ec != null && <Read v={fmt(r.ec, 0)} u="µS/cm" label="Conductividad" />}
+          {rest.map((c) => (
+            <Read
+              key={c.key}
+              v={c.value == null ? '—' : typeof c.value === 'boolean' ? (c.value ? 'sí' : 'no') : fmt(c.value, Math.abs(c.value) >= 100 ? 0 : 2)}
+              u={c.unit}
+              label={c.label}
+              flag={flagOf(c.status)}
+            />
+          ))}
+        </div>
+      </Section>
+
+      {s.health && <HealthBlockCard h={s.health} />}
+
+      <Sparkline deviceId={s.device_id} />
+
+      {s.suitability && <SuitabilityBlock s={s.suitability} />}
     </>
   )
 }
@@ -342,7 +360,7 @@ export function LivePanel({ deviceId, live }: { deviceId: string | null; live: L
     const rows: [string, string][] = [
       ['Humedad', r.vwc_pct != null ? `${r.vwc_pct.toFixed(1)} %` : '–'],
       ['Suelo', r.soil_t != null ? `${r.soil_t.toFixed(1)} °C` : '–'],
-      ['Aire', r.air_t != null ? `${r.air_t.toFixed(1)} °C · ${r.air_rh ?? '–'} %` : '–'],
+      ['Aire', r.air_t != null ? `${r.air_t.toFixed(1)} °C, ${r.air_rh ?? '–'} %` : '–'],
       ['Bomba', r.pump_on ? 'encendida' : 'apagada'],
     ]
     return (

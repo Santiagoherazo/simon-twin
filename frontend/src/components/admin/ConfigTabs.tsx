@@ -48,7 +48,7 @@ const SENSOR_PRESETS: Preset<SensorPreset>[] = [
 
 const ACTUATOR_PRESETS: Preset<ActuatorCfg>[] = [
   { id: 'pump', label: 'Mini bomba', hint: 'Relé · pin 26 · tope 120 s', make: () => mkAct({ key: 'pump', label: 'Mini bomba', pin: 26, max_seconds: 120 }) },
-  { id: 'light', label: 'Luz externa', hint: 'Relé · pin 27 · tope 1 h', make: () => mkAct({ key: 'light', label: 'Luz externa', pin: 27, max_seconds: 3600 }) },
+  { id: 'light', label: 'Luz externa', hint: 'Relé · pin 27 · tope 24 h', make: () => mkAct({ key: 'light', label: 'Luz externa', pin: 27, max_seconds: 86400 }) },
   { id: 'servo', label: 'Luz indirecta (servo)', hint: 'Postigo · pin 13 · abre a 90° y se queda abierto', make: () => mkAct({ key: 'servo', label: 'Luz indirecta', driver: 'servo', pin: 13, angle_on: 90, angle_off: 0, max_seconds: 30 }) },
 ]
 
@@ -259,7 +259,7 @@ export function ActuatorsTab({ cfg, patch, drivers, sensorKeys, apiKey, dirty, o
                 </select>
               </Field>
               <Field label="Pin" hint="Vacío = virtual"><input type="number" placeholder="virtual" value={val(a.pin)} onChange={(e) => set(i, { pin: num(e.target.value) })} /></Field>
-              {a.driver !== 'servo' && <Field label="Tope (s)" hint="Nunca más de esto seguido"><input type="number" value={a.max_seconds} onChange={(e) => set(i, { max_seconds: Number(e.target.value) || 1 })} /></Field>}
+              {a.driver !== 'servo' && <Field label="Tope (s)" hint="Nunca más de esto seguido (hasta 86400 s = 24 h)"><input type="number" value={a.max_seconds} onChange={(e) => set(i, { max_seconds: Number(e.target.value) || 1 })} /></Field>}
               {a.driver === 'servo' ? (
                 <>
                   <Field label="Ángulo abierto" hint="0 a 180°"><input type="number" min={0} max={180} value={a.angle_on} onChange={(e) => set(i, { angle_on: Math.min(180, Math.max(0, Number(e.target.value) || 0)) })} /></Field>

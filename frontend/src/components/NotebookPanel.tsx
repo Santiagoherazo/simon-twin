@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import {
-  ApiError, nbDelete, nbDeploy, nbGet, nbList, nbPredict, nbRestart, nbRun, nbSave, nbTemplates, nbTemplatesPublic,
+  ApiError, nbDelete, nbDeploy, nbGet, nbList, nbPredict, nbRestart, nbRun, nbSave, nbTemplates,
   type NbAlert, type NbCell, type NbMeta, type NbTemplate, type PredictResult, type RunResult,
 } from '../api'
 import { CodeEditor } from './admin/CodeEditor'
@@ -575,73 +575,16 @@ export function NotebookPanel({ apiKey, deviceId, onNeedKey }: Props) {
   }
 
   // ------------------------------------------------------------------------------------------
-  // Sin API key: catálogo público de modelos (solo lectura) para poder verlos sin clave.
-  const [pub, setPub] = useState<NbTemplate[] | null>(null)
-  const [preview, setPreview] = useState<NbTemplate | null>(null)
-  useEffect(() => {
-    if (apiKey) return
-    let off = false
-    nbTemplatesPublic()
-      .then((t) => { if (!off) setPub(t) })
-      .catch(() => { if (!off) setPub([]) })
-    return () => { off = true }
-  }, [apiKey])
-
-  if (!apiKey) {
-    const items = pub ?? []
+  if (!apiKey)
     return (
-      <div className="nbs-pub">
-        {preview ? (
-          <>
-            <div className="nbs-bar">
-              <div className="nbs-title">
-                <b>{preview.name}</b>
-                <span className="nbs-state">Vista previa · solo lectura</span>
-              </div>
-              <div className="nbs-actions">
-                <button className="btn primary sm" onClick={onNeedKey}>Ingresar API key para usarlo</button>
-                <button className="btn sm" onClick={() => setPreview(null)}>Volver a modelos</button>
-              </div>
-            </div>
-            <div className="nbs-cells">
-              {preview.cells.map((c, i) => (
-                <div className={'nbc ' + c.type} key={i}>
-                  <div className="nbc-gutter"><span className="nbc-n">{c.type === 'code' ? '▶' : '¶'}</span></div>
-                  <div className="nbc-body">
-                    {c.type === 'text'
-                      ? <Markdown src={c.source} />
-                      : <pre className="nbc-code"><code>{c.source}</code></pre>}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </>
-        ) : (
-          <div className="nbs-welcome">
-            <h2>Modelos disponibles</h2>
-            <p className="muted">Modelos básicos listos para usar (p. ej. <b>KNN</b> y <b>regresión lineal</b>). Haz clic en uno para ver su código. Para <b>crear, ejecutar, guardar o activar</b> un cuaderno necesitas la API key.</p>
-            <div className="nbs-tpl-grid">
-              {items.map((t) => (
-                <button key={t.id} className="nbs-tpl" onClick={() => setPreview(t)}>
-                  <b>{t.name}</b>
-                  <span>{t.cells.find((c) => c.type === 'text')?.source.replace(/^#+\s*/, '').split('\n')[0] ?? `${t.cells.length} celdas`}</span>
-                </button>
-              ))}
-              {!pub && <p className="muted">Cargando modelos…</p>}
-            </div>
-            <div className="nbs-cheat">
-              <h4>¿Qué puedes hacer sin clave?</h4>
-              <ul>
-                <li>Ver el código de cada modelo (KNN, regresión lineal, etc.).</li>
-                <li>Leer las instrucciones de <code>simon.data()</code>, <code>simon.log()</code> y <code>@simon.register</code>.</li>
-              </ul>
-            </div>
-            <button className="btn primary" onClick={onNeedKey}>Ingresar API key</button>
-          </div>
-        )}
+      <div className="adm-empty nb-locked">
+        <div className="adm-empty-ico" aria-hidden="true">🔒</div>
+        <h2>Laboratorio de modelos</h2>
+        <p>Los cuadernos guardan código que corre en tu servidor, por eso piden la <b>API key</b>.</p>
+        <button className="btn primary" onClick={onNeedKey}>Ingresar API key</button>
       </div>
     )
-  }
+
   const saveLabel = saveState === 'saving' ? 'Guardando…' : saveState === 'error' ? 'Error al guardar' : dirty ? 'Cambios sin guardar' : 'Todos los cambios guardados'
   const liveCount = list.filter((n) => n.live).length
 

@@ -162,9 +162,9 @@ try {
   $devices = Invoke-Curl 'https://simon.zeusr2.duckdns.org/api/devices' @('--resolve', 'simon.zeusr2.duckdns.org:443:127.0.0.1')
   $checks += @{ name = 'Simon /api/devices'; ok = ($devices -eq '200'); detail = $devices }
 
-  $tplRaw = (& curl.exe -sk --max-time 15 'https://simon.zeusr2.duckdns.org/api/notebook-templates' --resolve 'simon.zeusr2.duckdns.org:443:127.0.0.1' 2>$null) -join ''
-  $tplOk = ($tplRaw -match '"knn"' -and $tplRaw -match 'regresion')
-  $checks += @{ name = 'Plantillas (knn + regresión)'; ok = $tplOk; detail = $(if ($tplOk) { 'ok' } else { 'faltan plantillas' }) }
+  $tplRaw = (& curl.exe -sk --max-time 15 'https://simon.zeusr2.duckdns.org/api/admin/notebook-templates' --resolve 'simon.zeusr2.duckdns.org:443:127.0.0.1' 2>$null) -join ''
+  $tplOk = ($tplRaw -match 'explorar' -and $tplRaw -match 'aprender-humedad' -and $tplRaw -match 'tipo-cultivo')
+  $checks += @{ name = 'Plantillas de cuadernos (3)'; ok = $tplOk; detail = $(if ($tplOk) { 'ok' } else { 'faltan plantillas' }) }
 
   $ws = Invoke-Curl 'https://simon.zeusr2.duckdns.org/mqtt-ws' @(
     '--http1.1', '-H', 'Connection: Upgrade', '-H', 'Upgrade: websocket',
@@ -174,8 +174,8 @@ try {
 
   $webId = (& docker compose ps -q web 2>$null | Select-Object -First 1)
   if ($webId) {
-    $bundle = (& docker exec $webId sh -c "grep -l 'Modelos disponibles' /usr/share/nginx/html/assets/*.js 2>/dev/null | head -1" 2>$null)
-    $checks += @{ name = 'Bundle web (Modelos sin API key)'; ok = [bool]$bundle; detail = $(if ($bundle) { 'ok' } else { 'no encontrado' }) }
+    $bundle = (& docker exec $webId sh -c "grep -l 'Celular' /usr/share/nginx/html/assets/*.js 2>/dev/null | head -1" 2>$null)
+    $checks += @{ name = 'Bundle web (deteccion de equipo)'; ok = [bool]$bundle; detail = $(if ($bundle) { 'ok' } else { 'no encontrado' }) }
   } else {
     $checks += @{ name = 'Contenedor web'; ok = $false; detail = 'no encontrado' }
   }

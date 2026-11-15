@@ -60,6 +60,14 @@ def test_hardware_confirmado_es_coherente():
     assert default_config_esp32() == cfg
 
 
+def test_tiempo_libre_hasta_24_horas():
+    assert Actuator(key="light", label="Luz", pin=27, max_seconds=86400).max_seconds == 86400
+    with pytest.raises(ValidationError):
+        Actuator(key="light", label="Luz", pin=27, max_seconds=86401)
+    assert {a.key: a.max_seconds for a in config_hardware_confirmado().actuators}["light"] == 86400
+    assert {a.key: a.max_seconds for a in config_hardware_confirmado().actuators}["pump"] == 120     # el agua sigue acotada
+
+
 def test_hardware_retirado_y_nuevos_drivers():
     for bad in ({"driver": "bh1750"}, {"driver": "digital"}):
         with pytest.raises(ValidationError):

@@ -83,12 +83,12 @@ class Actuator(BaseModel):
     active_high: bool = True
     angle_on: int = Field(default=90, ge=0, le=180)          # solo servo: posición al activarse
     angle_off: int = Field(default=0, ge=0, le=180)          # solo servo: posición en reposo
-    max_seconds: int = Field(default=120, ge=1, le=3600)
+    max_seconds: int = Field(default=120, ge=1, le=86400)      # tope de seguridad por activación (hasta 24 h)
     auto_variable: str | None = None
     auto_on_below: float | None = Field(default=None, allow_inf_nan=False)
     auto_on_above: float | None = Field(default=None, allow_inf_nan=False)
     auto_off_at: float | None = Field(default=None, allow_inf_nan=False)
-    auto_seconds: int = Field(default=30, ge=1, le=3600)
+    auto_seconds: int = Field(default=30, ge=1, le=86400)
     cooldown_s: int = Field(default=600, ge=0, le=86400)
     enabled: bool = True
 
@@ -368,7 +368,7 @@ def config_hardware_confirmado() -> DeviceConfig:
         ],
         actuators=[
             Actuator(key="pump", label="Mini bomba", driver="relay", pin=26, max_seconds=120),
-            Actuator(key="light", label="Luz externa", driver="relay", pin=27, max_seconds=3600),
+            Actuator(key="light", label="Luz externa", driver="relay", pin=27, max_seconds=86400),
             Actuator(key="servo", label="Luz indirecta", driver="servo", pin=13, angle_on=90, angle_off=0, max_seconds=30),
         ],
         indicators=[

@@ -37,4 +37,4 @@ Pestaña **Modelos**: cuadernos tipo Colab (celdas, variables persistentes, `sim
 
 ## Control desde la pantalla principal
 Con el dispositivo en vivo, sobre la animación aparece una botonera con un botón por actuador (mini bomba, luz externa, servo). Tocar uno (o su
-modelo 3D) abre sus duraciones y, si está encendido, «Apagar ahora» (`seconds: 0`). Pide la API key una sola vez por pestaña. Sin nube, la orden va directo al ESP32.
+modelo 3D) abre sus duraciones y, si está encendido, «Apagar ahora» (`seconds: 0`). **«Otro»** deja escribir cualquier tiempo (segundos, minutos u horas, con decimales: `1,5 h`) hasta el tope de seguridad del actuador: 24 h para la luz externa y 2 min para la bomba. El tope se cambia en Actuadores → Tope. Pide la API key una sola vez por pestaña. Sin nube, la orden va directo al ESP32.

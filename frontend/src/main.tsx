@@ -1,12 +1,16 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'
+import { DeviceDetector } from './components/DeviceDetector'
+import '@fontsource-variable/bricolage-grotesque/standard.css'
 import './styles.css'
 import './admin.css'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <DeviceDetector>
+      <App />
+    </DeviceDetector>
   </StrictMode>,
 )
 

@@ -57,7 +57,7 @@ La página local (`http://<ip>/`) y `/api/state`, `/api/history`, `/api/act?key=
 | 4 fotorresistencias (LDR) | GPIO 32, 33, 34, 35 (ADC1) | Divisor: 3V3 → LDR → pin → 10 kΩ → GND. Esquinas: 32 NO, 33 NE, 34 SO, 35 SE |
 | Ultrasonido HC-SR04 | TRIG 23 · ECHO 19 | Alimentado a 5 V. **ECHO sale a 5 V: baja a 3,3 V con un divisor** (1 kΩ + 2 kΩ). Mide la distancia al agua |
 | Mini bomba (relé) | GPIO 26 | máx. 120 s por activación |
-| Luz externa (relé) | GPIO 27 | máx. 1 h por activación; se puede apagar antes desde la interfaz |
+| Luz externa (relé) | GPIO 27 | hasta 24 h por activación (tiempo libre desde la interfaz); se puede apagar antes |
 | Servo («Luz indirecta») | GPIO 13 | Abre y cierra la entrada de luz indirecta. 5 V externos (no del pin del ESP32), GND común. Abrir lo lleva a `angle_on` (90°) y **se queda ahí** hasta que lo cierren (`angle_off`, 0°); no tiene temporizador. Al reiniciar el ESP32 arranca cerrado |
 | Pantalla OLED SSD1306 128×32 | SDA 21 · SCL 22 | Dirección I2C 0x3C (60). Rota 3 variables por página |
 

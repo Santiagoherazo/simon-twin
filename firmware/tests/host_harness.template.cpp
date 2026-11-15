@@ -52,7 +52,7 @@ int main() {
   printf("sensores=%d actuadores=%d\n", nSens, nActs);
   CHECK(nSens == 6 && nActs == 3);                       // 9 sensores - 2 DHT omitidos... (DHT t y h) y DS18B20 => 6 o 7; se afirma abajo
   CHECK(!strcmp(acts[2].key, "servo") && acts[2].drv == A_SERVO && acts[2].angOn == 90 && acts[2].angOff == 0);
-  CHECK(acts[0].drv == A_RELAY && acts[1].maxS == 3600);
+  CHECK(acts[0].drv == A_RELAY && acts[1].maxS == 86400);
   CHECK(disp.enabled && disp.addr == 60 && disp.rotateS == 4 && disp.nShow == 6 && !strcmp(disp.show[5], "pump"));
   int ih = -1; for (int i = 0; i < nSens; i++) if (!strcmp(sens[i].key, "tank_cm")) ih = i;
   CHECK(ih >= 0 && sens[ih].drv == D_HCSR04 && sens[ih].pin == 23 && sens[ih].param == 19);
@@ -78,6 +78,14 @@ int main() {
   CHECK(!actSt[2].on);
   actReq[1] = 2; actTick(200000); CHECK(actSt[1].on);   // el relé de la luz sí vence por tiempo
   actTick(200000 + 2500); CHECK(!actSt[1].on);
+  puts("== luz externa con tiempo libre: 10 h seguidas y tope de 24 h ==");
+  actStopReq[1] = true; actTick(300000);
+  actReq[1] = 36000; actTick(1000000); CHECK(actSt[1].on);                       // «Otro»: 10 horas
+  actTick(1000000 + 35999UL * 1000UL); CHECK(actSt[1].on);                         // a 1 s de terminar sigue encendida
+  actTick(1000000 + 36001UL * 1000UL); CHECK(!actSt[1].on);                        // y se apaga sola
+  actReq[1] = 200000; actTick(2000000);                                            // piden 55 h: se recorta al tope
+  actTick(2000000 + 86399UL * 1000UL); CHECK(actSt[1].on);
+  actTick(2000000 + 86401UL * 1000UL); CHECK(!actSt[1].on);
   puts("== OLED: 3 variables por página y rota ==");
   for (int i = 0; i < nSens; i++) curVal[i] = 20.0f + i;
   curVal[ih] = 11.5f;
