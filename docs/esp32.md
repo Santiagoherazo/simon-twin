@@ -23,6 +23,23 @@ calibración del dispositivo (`vwc_raw_dry` = seco al aire, `vwc_raw_wet` = en a
 `ts` es epoch en segundos (sincroniza con NTP). Si lo omites, el backend usa su propia hora.
 Se rechaza un `ts` más de 300 s en el futuro; las fechas pasadas solo se aceptan de dispositivos `sim-*` o por `/import`.
 
+## Pines del montaje (firmware 2.2)
+
+| Pieza | ESP32 | Detalle |
+|---|---|---|
+| DHT11 | GPIO 4 | `dht_t` y `dht_h` con `param` 11 |
+| Humedad de suelo capacitiva | GPIO 34 (ADC1) | clave `vwc_raw` |
+| DS18B20 enterrado | GPIO 5 | pull-up de 4,7 kΩ |
+| LDR esquinas | GPIO 32 NO · 33 NE · 35 SO · 36 SE | ADC1, llegan como % |
+| HC-SR04 | TRIG 18 · ECHO 23 | ECHO a 5 V: divisor 1 kΩ + 2 kΩ |
+| Bomba (relé) | GPIO 26 | tope 120 s |
+| Luz externa (relé) | GPIO 27 | tope 24 h |
+| Servo | GPIO 19 | 5 V externos, GND común |
+| OLED SSD1306 128×32 | SDA 21 · SCL 22 | dirección 0x3C |
+
+El sketch y el backend comparten este mapa: `DEFAULT_CFG` en `esp32_telemetria.ino` y `config_hardware_confirmado()` en
+`backend/app/devcfg.py`. Solo se usan ADC1 (32–39): el ADC2 no lee con el WiFi encendido.
+
 ## Opción A: MQTT (recomendada)
 
 - Usuario = `device_id` (p. ej. `esp32-01`), contraseña = `MQTT_ESP32_PASSWORD` del `.env`, puerto 1883.

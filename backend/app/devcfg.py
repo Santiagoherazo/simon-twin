@@ -351,8 +351,9 @@ def config_hardware_confirmado() -> DeviceConfig:
     """Hardware confirmado: DHT11, humedad de suelo capacitiva, DS18B20 enterrado, 4 LDR en las esquinas,
     ultrasonido HC-SR04 (nivel del tanque), mini bomba, luz externa, servo (abre y cierra la luz indirecta) y pantalla OLED 0.91".
 
-    Pines (ESP32 DevKit):  DHT11 → 4 · suelo → 36 · DS18B20 → 18 · LDR → 32/33/34/35 (todos ADC1)
-    HC-SR04 → TRIG 23, ECHO 19 · bomba → 26 · luz externa → 27 · servo → 13 · OLED I2C → SDA 21, SCL 22.
+    Pines (ESP32 DevKit, según el esquema del montaje):  DHT11 → 4 · suelo → 34 · DS18B20 → 5
+    LDR → 32/33/35/36 (todos ADC1) · HC-SR04 → TRIG 18, ECHO 23 · bomba → 26 · luz externa → 27
+    servo → 19 · OLED I2C → SDA 21, SCL 22.
     """
     ldr = lambda k, lab, pin: Sensor(key=k, label=lab, driver="analog", pin=pin, unit="%", scale=100 / 4095, min_ok=15)  # noqa: E731
     return DeviceConfig(
@@ -360,16 +361,16 @@ def config_hardware_confirmado() -> DeviceConfig:
         sensors=[
             Sensor(key="air_t", label="Temp. aire", driver="dht_t", pin=4, param=11, unit="°C", min_ok=15, max_ok=32),
             Sensor(key="air_rh", label="Humedad aire", driver="dht_h", pin=4, param=11, unit="%", min_ok=40, max_ok=85),
-            Sensor(key="vwc_raw", label="Humedad suelo (ADC)", driver="analog", pin=36),
-            Sensor(key="soil_t", label="Temp. suelo", driver="ds18b20", pin=18, unit="°C", min_ok=15, max_ok=28),
+            Sensor(key="vwc_raw", label="Humedad suelo (ADC)", driver="analog", pin=34),
+            Sensor(key="soil_t", label="Temp. suelo", driver="ds18b20", pin=5, unit="°C", min_ok=15, max_ok=28),
             ldr("ldr_nw", "Luz esquina NO", 32), ldr("ldr_ne", "Luz esquina NE", 33),
-            ldr("ldr_sw", "Luz esquina SO", 34), ldr("ldr_se", "Luz esquina SE", 35),
-            Sensor(key="tank_cm", label="Distancia al agua", driver="hcsr04", pin=23, param=19, unit="cm"),
+            ldr("ldr_sw", "Luz esquina SO", 35), ldr("ldr_se", "Luz esquina SE", 36),
+            Sensor(key="tank_cm", label="Distancia al agua", driver="hcsr04", pin=18, param=23, unit="cm"),
         ],
         actuators=[
             Actuator(key="pump", label="Mini bomba", driver="relay", pin=26, max_seconds=120),
             Actuator(key="light", label="Luz externa", driver="relay", pin=27, max_seconds=86400),
-            Actuator(key="servo", label="Luz indirecta", driver="servo", pin=13, angle_on=90, angle_off=0, max_seconds=30),
+            Actuator(key="servo", label="Luz indirecta", driver="servo", pin=19, angle_on=90, angle_off=0, max_seconds=30),
         ],
         indicators=[
             Indicator(key="luz_media", label="Luz media (4 LDR)", formula="(ldr_nw + ldr_ne + ldr_sw + ldr_se) / 4", unit="%"),

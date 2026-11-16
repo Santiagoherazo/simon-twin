@@ -31,7 +31,7 @@
 #include <U8g2lib.h>
 #endif
 
-#define FW_VERSION "2.1"
+#define FW_VERSION "2.2"
 
 // === CONFIGURACIÓN WIFI ===
 const char* ssid     = "vivo Y33s";
@@ -170,17 +170,17 @@ Servo servos[MAXA];
 const char DEFAULT_CFG[] PROGMEM = R"CFG({"version":0,"report_interval_s":10,"sensors":[
 {"key":"air_t","label":"Temp. aire","unit":"C","driver":"dht_t","pin":4,"param":11},
 {"key":"air_rh","label":"Humedad aire","unit":"%","driver":"dht_h","pin":4,"param":11},
-{"key":"vwc_raw","label":"Humedad suelo","driver":"analog","pin":36},
-{"key":"soil_t","label":"Temp. suelo","unit":"C","driver":"ds18b20","pin":18},
+{"key":"vwc_raw","label":"Humedad suelo","driver":"analog","pin":34},
+{"key":"soil_t","label":"Temp. suelo","unit":"C","driver":"ds18b20","pin":5},
 {"key":"ldr_nw","label":"Luz NO","unit":"%","driver":"analog","pin":32,"scale":0.02442},
 {"key":"ldr_ne","label":"Luz NE","unit":"%","driver":"analog","pin":33,"scale":0.02442},
-{"key":"ldr_sw","label":"Luz SO","unit":"%","driver":"analog","pin":34,"scale":0.02442},
-{"key":"ldr_se","label":"Luz SE","unit":"%","driver":"analog","pin":35,"scale":0.02442},
-{"key":"tank_cm","label":"Dist. agua","unit":"cm","driver":"hcsr04","pin":23,"param":19}],
+{"key":"ldr_sw","label":"Luz SO","unit":"%","driver":"analog","pin":35,"scale":0.02442},
+{"key":"ldr_se","label":"Luz SE","unit":"%","driver":"analog","pin":36,"scale":0.02442},
+{"key":"tank_cm","label":"Dist. agua","unit":"cm","driver":"hcsr04","pin":18,"param":23}],
 "actuators":[
 {"key":"pump","label":"Mini bomba","driver":"relay","pin":26,"max_seconds":120},
 {"key":"light","label":"Luz externa","driver":"relay","pin":27,"max_seconds":86400},
-{"key":"servo","label":"Luz indirecta","driver":"servo","pin":13,"angle_on":90,"angle_off":0,"max_seconds":30}],
+{"key":"servo","label":"Luz indirecta","driver":"servo","pin":19,"angle_on":90,"angle_off":0,"max_seconds":30}],
 "display":{"enabled":true,"address":60,"rotate_s":4,"show":["air_t","air_rh","vwc_raw","soil_t","tank_cm","pump"]}})CFG";
 
 int drvFromName(const char* n) {

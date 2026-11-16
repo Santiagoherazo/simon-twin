@@ -55,14 +55,14 @@ int main() {
   CHECK(acts[0].drv == A_RELAY && acts[1].maxS == 86400);
   CHECK(disp.enabled && disp.addr == 60 && disp.rotateS == 4 && disp.nShow == 6 && !strcmp(disp.show[5], "pump"));
   int ih = -1; for (int i = 0; i < nSens; i++) if (!strcmp(sens[i].key, "tank_cm")) ih = i;
-  CHECK(ih >= 0 && sens[ih].drv == D_HCSR04 && sens[ih].pin == 23 && sens[ih].param == 19);
+  CHECK(ih >= 0 && sens[ih].drv == D_HCSR04 && sens[ih].pin == 18 && sens[ih].param == 23);
 
   puts("== ultrasonido: mediana descarta el eco suelto ==");
   pulses = {600, 5800, 610}; pidx = 0;                      // 600us≈10.3cm, 5800us≈99cm (ruido), 610us≈10.4cm
-  float d = readHcsr04(23, 19); printf("distancia=%.2f cm\n", d);
+  float d = readHcsr04(18, 23); printf("distancia=%.2f cm\n", d);
   CHECK(fabsf(d - 10.46f) < 0.2f);
-  pulses = {0, 0, 0}; pidx = 0; CHECK(isnan(readHcsr04(23, 19)));          // sin eco = sin dato
-  pulses = {50, 50, 50}; pidx = 0; CHECK(isnan(readHcsr04(23, 19)));       // < 2 cm = fuera de rango
+  pulses = {0, 0, 0}; pidx = 0; CHECK(isnan(readHcsr04(18, 23)));          // sin eco = sin dato
+  pulses = {50, 50, 50}; pidx = 0; CHECK(isnan(readHcsr04(18, 23)));       // < 2 cm = fuera de rango
 
   puts("== servo: ON va a angle_on, OFF vuelve a angle_off ==");
   actWrite(2, true); CHECK(actSt[2].on);

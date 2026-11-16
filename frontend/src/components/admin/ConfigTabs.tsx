@@ -26,21 +26,21 @@ const SENSOR_PRESETS: Preset<SensorPreset>[] = [
     mkSensor({ key: 'air_t', label: 'Temp. aire', driver: 'dht_t', pin: 4, param: 11, unit: '°C', min_ok: 15, max_ok: 32 }),
     mkSensor({ key: 'air_rh', label: 'Humedad aire', driver: 'dht_h', pin: 4, param: 11, unit: '%', min_ok: 40, max_ok: 85 }),
   ] }) },
-  { id: 'soil', label: 'Humedad del suelo', hint: 'Capacitivo · entrada analógica · pin 36', make: () => ({ sensors: [
-    mkSensor({ key: 'vwc_raw', label: 'Humedad suelo (ADC)', driver: 'analog', pin: 36 }),
+  { id: 'soil', label: 'Humedad del suelo', hint: 'Capacitivo · entrada analógica · pin 34', make: () => ({ sensors: [
+    mkSensor({ key: 'vwc_raw', label: 'Humedad suelo (ADC)', driver: 'analog', pin: 34 }),
   ] }) },
-  { id: 'ds18b20', label: 'Temperatura del suelo', hint: 'DS18B20 enterrado · pin 18', make: () => ({ sensors: [
-    mkSensor({ key: 'soil_t', label: 'Temp. suelo', driver: 'ds18b20', pin: 18, unit: '°C', min_ok: 15, max_ok: 28 }),
+  { id: 'ds18b20', label: 'Temperatura del suelo', hint: 'DS18B20 enterrado · pin 5', make: () => ({ sensors: [
+    mkSensor({ key: 'soil_t', label: 'Temp. suelo', driver: 'ds18b20', pin: 5, unit: '°C', min_ok: 15, max_ok: 28 }),
   ] }) },
-  { id: 'ldr4', label: 'Luz: 4 LDR en las esquinas', hint: 'Pines 32 · 33 · 34 · 35 · crea 4 variables y la luz media', make: () => ({
-    sensors: [ldr('ldr_nw', 'Luz esquina NO', 32), ldr('ldr_ne', 'Luz esquina NE', 33), ldr('ldr_sw', 'Luz esquina SO', 34), ldr('ldr_se', 'Luz esquina SE', 35)],
+  { id: 'ldr4', label: 'Luz: 4 LDR en las esquinas', hint: 'Pines 32 · 33 · 35 · 36 · crea 4 variables y la luz media', make: () => ({
+    sensors: [ldr('ldr_nw', 'Luz esquina NO', 32), ldr('ldr_ne', 'Luz esquina NE', 33), ldr('ldr_sw', 'Luz esquina SO', 35), ldr('ldr_se', 'Luz esquina SE', 36)],
     indicators: [
       mkInd({ key: 'luz_media', label: 'Luz media (4 LDR)', formula: '(ldr_nw + ldr_ne + ldr_sw + ldr_se) / 4', unit: '%' }),
       mkInd({ key: 'luz_desbalance', label: 'Diferencia de luz entre esquinas', formula: 'max(ldr_nw, ldr_ne, ldr_sw, ldr_se) - min(ldr_nw, ldr_ne, ldr_sw, ldr_se)', unit: '%', min_ok: 0, max_ok: 35 }),
     ],
   }) },
-  { id: 'tank', label: 'Nivel del tanque', hint: 'Ultrasonido HC-SR04 · TRIG 23 · ECHO 19 · calcula el %', make: () => ({
-    sensors: [mkSensor({ key: 'tank_cm', label: 'Distancia al agua', driver: 'hcsr04', pin: 23, param: 19, unit: 'cm' })],
+  { id: 'tank', label: 'Nivel del tanque', hint: 'Ultrasonido HC-SR04 · TRIG 18 · ECHO 23 · calcula el %', make: () => ({
+    sensors: [mkSensor({ key: 'tank_cm', label: 'Distancia al agua', driver: 'hcsr04', pin: 18, param: 23, unit: 'cm' })],
     indicators: [mkInd({ key: 'tank_pct', label: 'Nivel del tanque', formula: 'max(0, min(100, (15 - tank_cm) / (15 - 3) * 100))', unit: '%', min_ok: 15 })],
   }) },
   { id: 'sim', label: 'Simulado (pruebas)', hint: 'Sin hardware, valores aleatorios', make: () => ({ sensors: [mkSensor({ key: 'simulada', label: 'Simulada', driver: 'simulated', sim_min: 0, sim_max: 100 })] }) },
@@ -49,7 +49,7 @@ const SENSOR_PRESETS: Preset<SensorPreset>[] = [
 const ACTUATOR_PRESETS: Preset<ActuatorCfg>[] = [
   { id: 'pump', label: 'Mini bomba', hint: 'Relé · pin 26 · tope 120 s', make: () => mkAct({ key: 'pump', label: 'Mini bomba', pin: 26, max_seconds: 120 }) },
   { id: 'light', label: 'Luz externa', hint: 'Relé · pin 27 · tope 24 h', make: () => mkAct({ key: 'light', label: 'Luz externa', pin: 27, max_seconds: 86400 }) },
-  { id: 'servo', label: 'Luz indirecta (servo)', hint: 'Postigo · pin 13 · abre a 90° y se queda abierto', make: () => mkAct({ key: 'servo', label: 'Luz indirecta', driver: 'servo', pin: 13, angle_on: 90, angle_off: 0, max_seconds: 30 }) },
+  { id: 'servo', label: 'Luz indirecta (servo)', hint: 'Postigo · pin 19 · abre a 90° y se queda abierto', make: () => mkAct({ key: 'servo', label: 'Luz indirecta', driver: 'servo', pin: 19, angle_on: 90, angle_off: 0, max_seconds: 30 }) },
 ]
 
 interface Common {

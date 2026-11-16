@@ -39,10 +39,11 @@ la tabla `simon_inbox` de Supabase; el backend las valida y las trae. Se confirm
 **Sin probar en hardware** (la lógica de cola peek/ack sí se probó en C++ de escritorio, incluyendo un envío fallido y el paso flash→RAM).
 
 
-## Firmware 2.1: hardware confirmado, servo, ultrasonido y pantalla OLED
+## Firmware 2.2: hardware confirmado, servo, ultrasonido y pantalla OLED
 La lista de sensores, actuadores y pantalla (pines, escalas, reglas) se descarga del backend. Ver `docs/panel-admin.md`.
 **Hardware soportado** (y nada más): DHT11 · humedad de suelo capacitiva · DS18B20 enterrado · 4 LDR · ultrasonido HC-SR04 ·
 mini bomba · luz externa · servo · pantalla OLED 0,91″. Se retiraron BH1750, sensor digital, salida digital y PWM.
+La v2.2 alinea los pines con el esquema del montaje (suelo 34, DS18B20 5, LDR 32/33/35/36, HC-SR04 TRIG 18 / ECHO 23, servo 19).
 
 **Librerías** (Administrador de bibliotecas de Arduino): `PubSubClient`, `ArduinoJson` v6, `DHT sensor library` + `Adafruit Unified Sensor`,
 `OneWire`, `DallasTemperature`, `ESP32Servo`, `U8g2`. Si no usas una pieza, comenta su `#define USE_…` al inicio del sketch.
@@ -52,13 +53,13 @@ La página local (`http://<ip>/`) y `/api/state`, `/api/history`, `/api/act?key=
 | Pieza | Pin ESP32 | Notas |
 |---|---|---|
 | DHT11 (temp./humedad aire) | GPIO 4 | `param` 11; pull-up de 10 kΩ si el módulo no la trae |
-| Humedad de suelo capacitiva | GPIO 36 (ADC1) | clave `vwc_raw`; calibra seco/mojado en el panel |
-| DS18B20 (temp. suelo) | GPIO 18 | pull-up de 4,7 kΩ entre datos y 3V3 |
-| 4 fotorresistencias (LDR) | GPIO 32, 33, 34, 35 (ADC1) | Divisor: 3V3 → LDR → pin → 10 kΩ → GND. Esquinas: 32 NO, 33 NE, 34 SO, 35 SE |
-| Ultrasonido HC-SR04 | TRIG 23 · ECHO 19 | Alimentado a 5 V. **ECHO sale a 5 V: baja a 3,3 V con un divisor** (1 kΩ + 2 kΩ). Mide la distancia al agua |
+| Humedad de suelo capacitiva | GPIO 34 (ADC1) | clave `vwc_raw`; calibra seco/mojado en el panel |
+| DS18B20 (temp. suelo) | GPIO 5 | pull-up de 4,7 kΩ entre datos y 3V3 |
+| 4 fotorresistencias (LDR) | GPIO 32, 33, 35, 36 (ADC1) | Divisor: 3V3 → LDR → pin → 10 kΩ → GND. Esquinas: 32 NO, 33 NE, 35 SO, 36 SE |
+| Ultrasonido HC-SR04 | TRIG 18 · ECHO 23 | Alimentado a 5 V. **ECHO sale a 5 V: baja a 3,3 V con un divisor** (1 kΩ + 2 kΩ). Mide la distancia al agua |
 | Mini bomba (relé) | GPIO 26 | máx. 120 s por activación |
 | Luz externa (relé) | GPIO 27 | hasta 24 h por activación (tiempo libre desde la interfaz); se puede apagar antes |
-| Servo («Luz indirecta») | GPIO 13 | Abre y cierra la entrada de luz indirecta. 5 V externos (no del pin del ESP32), GND común. Abrir lo lleva a `angle_on` (90°) y **se queda ahí** hasta que lo cierren (`angle_off`, 0°); no tiene temporizador. Al reiniciar el ESP32 arranca cerrado |
+| Servo («Luz indirecta») | GPIO 19 | Abre y cierra la entrada de luz indirecta. 5 V externos (no del pin del ESP32), GND común. Abrir lo lleva a `angle_on` (90°) y **se queda ahí** hasta que lo cierren (`angle_off`, 0°); no tiene temporizador. Al reiniciar el ESP32 arranca cerrado |
 | Pantalla OLED SSD1306 128×32 | SDA 21 · SCL 22 | Dirección I2C 0x3C (60). Rota 3 variables por página |
 
 **Nivel del tanque.** El HC-SR04 va en la tapa mirando al agua y manda `tank_cm` (distancia). El indicador `tank_pct` lo convierte en %
