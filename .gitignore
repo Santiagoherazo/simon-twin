@@ -9,3 +9,9 @@ __pycache__/
 deploy-logs/
 web-build*.log
 web-build*.err
+
+# ajustes locales de rendimiento (no versionados)
+docker-compose.override.yml
+
+# dependencias instaladas por error en la raiz
+node_modules/

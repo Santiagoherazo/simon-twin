@@ -1,0 +1,11 @@
+# Finales de línea: LF obligatorio en todo lo que se ejecuta dentro de Linux.
+# Sin esto, el checkout de CI en Windows inyecta CRLF y rompe mosquitto
+# (entrypoint.sh: "no such file or directory") y nginx.
+*.sh         text eol=lf
+*.conf       text eol=lf
+*.template   text eol=lf
+*.yml        text eol=lf
+*.yaml       text eol=lf
+*.sql        text eol=lf
+Dockerfile   text eol=lf
+*.dockerfile text eol=lf

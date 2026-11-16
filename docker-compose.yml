@@ -20,7 +20,7 @@ services:
       - ./mosquitto/acl:/mosquitto/config/acl:ro
       - mosquitto_data:/mosquitto/data
     ports:
-      - "127.0.0.1:1883:1883"   # MQTT
+      - "1883:1883"             # MQTT (abierto: auth obligatoria por password_file + ACL)
       - "127.0.0.1:9001:9001"   # MQTT sobre WebSockets (para el front 3D)
 
   timescaledb:
