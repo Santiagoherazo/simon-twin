@@ -13,5 +13,8 @@ web-build*.err
 # ajustes locales de rendimiento (no versionados)
 docker-compose.override.yml
 
+# credenciales del firmware (secrets.h se crea a partir de secrets.h.example)
+firmware/esp32_telemetria/secrets.h
+
 # dependencias instaladas por error en la raiz
 node_modules/

@@ -53,13 +53,31 @@ const char* AP_SSID    = "Simon-esp32-01";                   // red propia si el
 const char* AP_PASS    = "simon1234";                        // solo pruebas
 
 // === RESPALDO DIRECTO EN SUPABASE (si cae tu servidor) ===
-// Vacío = desactivado. Con la tabla simon_inbox (la crea el backend) y la clave pública "anon" solo se puede INSERTAR.
-const char* SUPABASE_URL      = "";    // https://TU-PROYECTO.supabase.co
-const char* SUPABASE_ANON_KEY = "";    // Project Settings → API → anon public (solo pruebas)
-const char* INGEST_KEY        = "";    // POST /devices/esp32-01/ingest-key en el backend
+// Vacío = desactivado. La tabla simon_inbox y el permiso de INSERT los crea el backend; la clave pública
+// (publishable/anon) no puede leer nada. Los valores reales van en secrets.h, que NO se versiona:
+// copia secrets.h.example a secrets.h y rellénalo (o define las macros al compilar).
+#if __has_include("secrets.h")
+#include "secrets.h"
+#endif
+#ifndef SUPABASE_URL
+#define SUPABASE_URL ""
+#endif
+#ifndef SUPABASE_ANON_KEY
+#define SUPABASE_ANON_KEY ""
+#endif
+#ifndef INGEST_KEY
+#define INGEST_KEY ""
+#endif
 const unsigned long SB_AFTER_MS = 45000;   // tiempo sin MQTT antes de usar Supabase (evita saltar por un cambio de puerto)
 const unsigned long SB_EVERY_MS = 10000;   // un lote cada 10 s
 const int SB_BATCH = 10;
+
+// Tipos usados por las funciones. Se declaran aquí (antes de la primera función) porque el generador de
+// prototipos de Arduino inserta las firmas al principio y, si no, no conoce «SensorCfg».
+struct SensorCfg;
+struct ActCfg;
+struct ActState;
+struct DispCfg;
 
 // === OBJETOS ===
 WebServer server(80);

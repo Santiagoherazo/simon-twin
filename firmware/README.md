@@ -35,7 +35,8 @@ El ESP32 funciona solo; la nube es un extra.
 ## Respaldo directo en Supabase (v1.5)
 Si MQTT lleva más de 45 s caído pero hay WiFi, las lecturas pendientes (flash primero, luego RAM) se envían en lotes de 10 por HTTPS a
 la tabla `simon_inbox` de Supabase; el backend las valida y las trae. Se confirman (se quitan de la cola) solo si Supabase respondió
-200/201/204. Rellena `SUPABASE_URL`, `SUPABASE_ANON_KEY` e `INGEST_KEY`; vacío = desactivado. Ver `docs/respaldo-supabase.md`.
+200/201/204. Crea `firmware/esp32_telemetria/secrets.h` a partir de `secrets.h.example` y rellena `SUPABASE_URL`,
+`SUPABASE_ANON_KEY` e `INGEST_KEY` (ese archivo está en `.gitignore`); vacío = desactivado. Ver `docs/respaldo-supabase.md`.
 **Sin probar en hardware** (la lógica de cola peek/ack sí se probó en C++ de escritorio, incluyendo un envío fallido y el paso flash→RAM).
 
 
@@ -75,4 +76,10 @@ Usa solo pines ADC1 (32-39) para analógicos: el ADC2 deja de funcionar con el W
 **Orden por MQTT/REST:** `{"seconds": N}` enciende N s; `{"seconds": 0}` apaga ya.
 
 **Probado**: lectura de configuración, servo, relés, mediana del ultrasonido y páginas de la OLED en C++ de escritorio con ArduinoJson real
-(`firmware/tests/run_host_tests.sh`). **Sin probar**: compilación con el core real de Arduino y el hardware.
+(`firmware/tests/run_host_tests.sh`). **Compilado** con `arduino-cli` y el core `esp32:esp32` 3.3.12 (ESP32 Dev Module, 93 % de la flash).
+**Sin probar**: el hardware real.
+
+## Credenciales del firmware (`secrets.h`)
+`secrets.h` (misma carpeta que el `.ino`) guarda `SUPABASE_URL`, `SUPABASE_ANON_KEY` e `INGEST_KEY`; está en `.gitignore`.
+Copia `secrets.h.example` y rellénalo. Sin ese archivo el sketch compila igual y el respaldo en Supabase queda desactivado
+(las macros caen a `""`).
