@@ -62,7 +62,12 @@ class Simon:
                 rows = json.load(f)
         df = pd.DataFrame(rows)
         if "ts" in df.columns and len(df):
-            df["ts"] = pd.to_datetime(df["ts"], utc=True)
+            # Las lecturas mezclan ISO-8601 con y sin microsegundos: sin format="ISO8601" pandas
+            # deduce el formato de la primera fila y falla con el resto.
+            try:
+                df["ts"] = pd.to_datetime(df["ts"], utc=True, format="ISO8601")
+            except (ValueError, TypeError):
+                df["ts"] = pd.to_datetime(df["ts"], utc=True, format="mixed")
             df = df.sort_values("ts").reset_index(drop=True)
             if hours:
                 df = df[df["ts"] > df["ts"].max() - pd.Timedelta(hours=hours)].reset_index(drop=True)

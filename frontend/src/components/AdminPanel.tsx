@@ -5,16 +5,9 @@ import { ActuatorsTab, DeviceTab, IndicatorsTab, SensorsTab, type Cfg } from './
 import { Overview, type SectionId } from './admin/Overview'
 import { Icon } from './admin/ui'
 import { NotebookPanel } from './NotebookPanel'
+import { getApiKey, saveApiKey } from '../apikey'
 
 const NO_DISPLAY: Cfg['display'] = { enabled: false, driver: 'ssd1306_128x32', address: 60, show: [], rotate_s: 4 }
-const KEY = 'simon.apikey'
-const readKey = () => {
-  try {
-    return sessionStorage.getItem(KEY) ?? ''
-  } catch {
-    return ''
-  }
-}
 
 const NAV: { id: SectionId; label: string; short: string; icon: 'home' | 'sensor' | 'actuator' | 'formula' | 'chip' | 'lab' }[] = [
   { id: 'overview', label: 'Resumen', short: 'Resumen', icon: 'home' },
@@ -32,7 +25,7 @@ const sectionFromHash = (): SectionId => {
 }
 
 export function AdminPanel() {
-  const [apiKey, setApiKey] = useState(readKey)
+  const [apiKey, setApiKey] = useState(getApiKey)
   const [keyOpen, setKeyOpen] = useState(false)
   const [devices, setDevices] = useState<DeviceInfo[]>([])
   const [deviceId, setDeviceId] = useState<string>('')
@@ -49,11 +42,7 @@ export function AdminPanel() {
   const closeKey = useCallback(() => setKeyOpen(false), [])
 
   useEffect(() => {
-    try {
-      sessionStorage.setItem(KEY, apiKey)
-    } catch {
-      /* sin almacenamiento */
-    }
+    saveApiKey(apiKey)
   }, [apiKey])
 
   // La sección vive en el hash (#/admin/sensors): se puede enlazar y el botón Atrás funciona.
@@ -294,7 +283,7 @@ function KeyDialog({ value, onChange, onClose }: { value: string; onChange: (v: 
       <button type="button" className="dlg-scrim" aria-label="Cerrar" onClick={onClose} />
       <form className="dlg" role="dialog" aria-modal="true" aria-labelledby="dlg-t" onSubmit={(e) => { e.preventDefault(); void submit() }}>
         <h2 id="dlg-t">API key</h2>
-        <p className="muted">Se pide para guardar la configuración, probar actuadores y usar los modelos. Vive solo en esta pestaña (se borra al cerrarla).</p>
+        <p className="muted">Se pide para guardar la configuración, probar actuadores y usar los modelos. Queda guardada en este navegador, así que no vuelve a pedirla; puedes olvidarla aquí cuando quieras.</p>
         <label className="fld">
           <span>Clave</span>
           <div className="fld-row">
@@ -304,6 +293,9 @@ function KeyDialog({ value, onChange, onClose }: { value: string; onChange: (v: 
         </label>
         {state && <p className={'dlg-state ' + (state.ok ? 'ok' : 'bad')} role="status">{state.text}</p>}
         <div className="dlg-actions">
+          {!!value && (
+            <button type="button" className="btn ghost" onClick={() => { onChange(''); onClose() }}>Olvidar clave</button>
+          )}
           <button type="button" className="btn ghost" onClick={onClose}>Cancelar</button>
           <button type="submit" className="btn primary" disabled={checking}>{checking ? 'Comprobando…' : 'Guardar'}</button>
         </div>
