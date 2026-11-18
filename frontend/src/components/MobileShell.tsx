@@ -8,6 +8,7 @@ import { LivePanel } from './LivePanel'
 import { SimPanel, type SimPanelProps } from './SimPanel'
 import type { SimRequest } from '../types'
 import { pump } from '../api'
+import { useApiKey } from '../apikey'
 import { gyro, useXr, xrRequest, setXr, detectAr } from '../xr'
 import { Icon } from './admin/ui'
 import { ActuatorDock } from './ActuatorDock'
@@ -40,15 +41,6 @@ interface Props {
   onQuality: (q: QualityPref) => void
 }
 
-const KEY = 'simon.apikey'
-const readKey = () => {
-  try {
-    return sessionStorage.getItem(KEY) ?? ''
-  } catch {
-    return ''
-  }
-}
-
 type Orient = DeviceOrientationEvent & { requestPermission?: () => Promise<'granted' | 'denied'> }
 
 export function MobileShell({ live, mode, onMode, deviceId, sim, quality, onQuality }: Props) {
@@ -71,7 +63,7 @@ export function MobileShell({ live, mode, onMode, deviceId, sim, quality, onQual
   const [tilt, setTilt] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [key, setKey] = useState(readKey)
+  const [key, setKey] = useApiKey()
   const [askKey, setAskKey] = useState(false)
 
   useEffect(() => {
@@ -220,11 +212,6 @@ export function MobileShell({ live, mode, onMode, deviceId, sim, quality, onQual
               className="m-key"
               onSubmit={(e) => {
                 e.preventDefault()
-                try {
-                  sessionStorage.setItem(KEY, key)
-                } catch {
-                  /* solo en memoria */
-                }
                 setAskKey(false)
                 void water()
               }}
