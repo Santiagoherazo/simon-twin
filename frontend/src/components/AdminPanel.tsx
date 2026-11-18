@@ -5,7 +5,7 @@ import { ActuatorsTab, DeviceTab, IndicatorsTab, SensorsTab, type Cfg } from './
 import { Overview, type SectionId } from './admin/Overview'
 import { Icon } from './admin/ui'
 import { NotebookPanel } from './NotebookPanel'
-import { getApiKey, saveApiKey } from '../apikey'
+import { useApiKey } from '../apikey'
 
 const NO_DISPLAY: Cfg['display'] = { enabled: false, driver: 'ssd1306_128x32', address: 60, show: [], rotate_s: 4 }
 
@@ -25,7 +25,7 @@ const sectionFromHash = (): SectionId => {
 }
 
 export function AdminPanel() {
-  const [apiKey, setApiKey] = useState(getApiKey)
+  const [apiKey, setApiKey] = useApiKey()
   const [keyOpen, setKeyOpen] = useState(false)
   const [devices, setDevices] = useState<DeviceInfo[]>([])
   const [deviceId, setDeviceId] = useState<string>('')
@@ -40,10 +40,6 @@ export function AdminPanel() {
   const [notebooks, setNotebooks] = useState<NbMeta[] | null>(null)
   const scroller = useRef<HTMLDivElement>(null)
   const closeKey = useCallback(() => setKeyOpen(false), [])
-
-  useEffect(() => {
-    saveApiKey(apiKey)
-  }, [apiKey])
 
   // La sección vive en el hash (#/admin/sensors): se puede enlazar y el botón Atrás funciona.
   useEffect(() => {

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { actuate } from '../api'
-import { getApiKey, saveApiKey } from '../apikey'
+import { useApiKey } from '../apikey'
 import { dur, isLatch, kindOf, OPTIONS, VERB } from '../actuators'
 import type { ActuatorState } from '../types'
 
@@ -15,8 +15,8 @@ export function PumpControl({ deviceId, online, actuators }: { deviceId: string;
   const kind = kindOf(act)
   // Solo duraciones que no pasen el tope de seguridad del actuador
   const options = OPTIONS[kind].filter((s) => s <= act.max_seconds)
-  const [apiKey, setApiKey] = useState(getApiKey)
-  const [showKey, setShowKey] = useState(() => !getApiKey())
+  const [apiKey, setApiKey] = useApiKey()
+  const [showKey, setShowKey] = useState(() => !apiKey)
   const [seconds, setSeconds] = useState(options[1] ?? options[0] ?? 10)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
@@ -32,7 +32,6 @@ export function PumpControl({ deviceId, online, actuators }: { deviceId: string;
     setBusy(true)
     setMsg(null)
     try {
-      saveApiKey(apiKey)
       await actuate(deviceId, act.key, secs, apiKey)
       setMsg({ ok: true, text: okText })
     } catch (e) {
@@ -74,7 +73,7 @@ export function PumpControl({ deviceId, online, actuators }: { deviceId: string;
                 autoComplete="off"
                 placeholder="La del servidor"
                 onChange={(e) => setApiKey(e.target.value)}
-                onBlur={() => { saveApiKey(apiKey); if (apiKey) setShowKey(false) }}
+                onBlur={() => { if (apiKey) setShowKey(false) }}
               />
             </label>
           ) : (

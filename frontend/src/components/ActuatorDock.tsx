@@ -1,17 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { actuate } from '../api'
+import { useApiKey } from '../apikey'
 import { dur, isLatch, kindOf, optionsFor, stateWord, toSeconds, UNITS, VERB, type ActKind, type UnitId } from '../actuators'
 import type { ActuatorState } from '../types'
 import { useActuatorPick } from '../xr'
-
-const KEY = 'simon.apikey'
-const readKey = () => {
-  try {
-    return sessionStorage.getItem(KEY) ?? ''
-  } catch {
-    return ''
-  }
-}
 
 const ICON: Record<ActKind, string> = {
   pump: 'M12 3c3.2 4.2 6 6.9 6 10.2A6 6 0 016 13.2C6 9.9 8.8 7.2 12 3z',
@@ -36,7 +28,11 @@ interface Props {
 export function ActuatorDock({ deviceId, online, actuators, variant = 'float', exclude = [] }: Props) {
   const list = (actuators ?? []).filter((a) => !exclude.includes(a.key))
   const [open, setOpen] = useState<string | null>(null)
-  const [apiKey, setApiKey] = useState(readKey)
+  const [apiKey, setApiKey] = useApiKey()
+  const [showKey, setShowKey] = useState(() => !apiKey)
+  useEffect(() => {
+    if (!apiKey) setShowKey(true)
+  }, [apiKey])
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
   // Orden recién enviada: se muestra ya, sin esperar a la siguiente lectura del equipo (que llega cada ~10 s)
@@ -94,11 +90,6 @@ export function ActuatorDock({ deviceId, online, actuators, variant = 'float', e
     setMsg(null)
     navigator.vibrate?.(25)
     try {
-      try {
-        sessionStorage.setItem(KEY, apiKey)
-      } catch {
-        /* solo en memoria */
-      }
       await actuate(deviceId, a.key, seconds, apiKey)
       const latch = isLatch(kindOf(a))
       // temporizado: activo mientras dure; postigo/apagado: se muestra el cambio ~15 s hasta que llegue la lectura real
@@ -151,11 +142,24 @@ export function ActuatorDock({ deviceId, online, actuators, variant = 'float', e
                   <div className="act-pop" role="dialog" aria-label={`Control de ${a.label}`}>
                     <b>{a.label}</b>
                     {!online && <small className="act-warn">El dispositivo está sin conexión: no se puede enviar.</small>}
-                    {!apiKey && (
+                    {showKey ? (
                       <label className="act-key-in">
                         API key
-                        <input type="password" autoComplete="off" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="La del servidor" />
+                        <input
+                          type="password"
+                          autoComplete="off"
+                          value={apiKey}
+                          onChange={(e) => setApiKey(e.target.value)}
+                          onBlur={() => { if (apiKey) setShowKey(false) }}
+                          placeholder="La del servidor"
+                        />
                       </label>
+                    ) : (
+                      <small className="act-cap">
+                        Usando la API key guardada.{' '}
+                        <button type="button" onClick={() => setShowKey(true)}>Cambiar</button>{' '}
+                        <button type="button" onClick={() => { setApiKey(''); setShowKey(true) }}>Olvidar</button>
+                      </small>
                     )}
                     {isLatch(kind) ? (
                       <div className="act-opts two">
