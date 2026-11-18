@@ -35,19 +35,17 @@ El ESP32 funciona solo; la nube es un extra.
 ## Respaldo directo en Supabase (v1.5)
 Si MQTT lleva más de 45 s caído pero hay WiFi, las lecturas pendientes (flash primero, luego RAM) se envían en lotes de 10 por HTTPS a
 la tabla `simon_inbox` de Supabase; el backend las valida y las trae. Se confirman (se quitan de la cola) solo si Supabase respondió
-200/201/204. Crea `firmware/esp32_telemetria/secrets.h` a partir de `secrets.h.example` y rellena `SUPABASE_URL`,
-`SUPABASE_ANON_KEY` e `INGEST_KEY` (ese archivo está en `.gitignore`); vacío = desactivado. Ver `docs/respaldo-supabase.md`.
+200/201/204. Rellena `SUPABASE_URL`, `SUPABASE_ANON_KEY` e `INGEST_KEY`; vacío = desactivado. Ver `docs/respaldo-supabase.md`.
 **Sin probar en hardware** (la lógica de cola peek/ack sí se probó en C++ de escritorio, incluyendo un envío fallido y el paso flash→RAM).
 
 
-## Firmware 2.2: hardware confirmado, servo, ultrasonido y pantalla OLED
+## Firmware 2.3: hardware confirmado, servo, tira RGB, ultrasonido y pantalla OLED
 La lista de sensores, actuadores y pantalla (pines, escalas, reglas) se descarga del backend. Ver `docs/panel-admin.md`.
 **Hardware soportado** (y nada más): DHT11 · humedad de suelo capacitiva · DS18B20 enterrado · 4 LDR · ultrasonido HC-SR04 ·
 mini bomba · luz externa · servo · pantalla OLED 0,91″. Se retiraron BH1750, sensor digital, salida digital y PWM.
-La v2.2 alinea los pines con el esquema del montaje (suelo 34, DS18B20 5, LDR 32/33/35/36, HC-SR04 TRIG 18 / ECHO 23, servo 19).
 
 **Librerías** (Administrador de bibliotecas de Arduino): `PubSubClient`, `ArduinoJson` v6, `DHT sensor library` + `Adafruit Unified Sensor`,
-`OneWire`, `DallasTemperature`, `ESP32Servo`, `U8g2`. Si no usas una pieza, comenta su `#define USE_…` al inicio del sketch.
+`OneWire`, `DallasTemperature`, `ESP32Servo`, `U8g2`, `Adafruit NeoPixel`. Si no usas una pieza, comenta su `#define USE_…` al inicio del sketch.
 La página local (`http://<ip>/`) y `/api/state`, `/api/history`, `/api/act?key=<actuador>&s=<seg>` se adaptan solos a la configuración.
 
 ## Hardware confirmado (panel admin → Sensores → «Cargar hardware confirmado»)
@@ -60,6 +58,7 @@ La página local (`http://<ip>/`) y `/api/state`, `/api/history`, `/api/act?key=
 | Ultrasonido HC-SR04 | TRIG 18 · ECHO 23 | Alimentado a 5 V. **ECHO sale a 5 V: baja a 3,3 V con un divisor** (1 kΩ + 2 kΩ). Mide la distancia al agua |
 | Mini bomba (relé) | GPIO 26 | máx. 120 s por activación |
 | Luz externa (relé) | GPIO 27 | hasta 24 h por activación (tiempo libre desde la interfaz); se puede apagar antes |
+| Tira LED RGB WS2812 («Tira LED RGB») | GPIO 25 (DIN) | 8 LED 5050. 5 V y GND común; resistencia de 330 Ω en DIN (ideal: adaptador de nivel 3,3→5 V). Color y brillo se eligen desde la interfaz: MQTT `cmd/strip` con `{"seconds":N,"color":"#ff8800","brightness":60}` (sin `seconds` solo cambia el color). Al máximo en blanco consume ~0,5 A |
 | Servo («Luz indirecta») | GPIO 19 | Abre y cierra la entrada de luz indirecta. 5 V externos (no del pin del ESP32), GND común. Abrir lo lleva a `angle_on` (90°) y **se queda ahí** hasta que lo cierren (`angle_off`, 0°); no tiene temporizador. Al reiniciar el ESP32 arranca cerrado |
 | Pantalla OLED SSD1306 128×32 | SDA 21 · SCL 22 | Dirección I2C 0x3C (60). Rota 3 variables por página |
 
@@ -76,10 +75,12 @@ Usa solo pines ADC1 (32-39) para analógicos: el ADC2 deja de funcionar con el W
 **Orden por MQTT/REST:** `{"seconds": N}` enciende N s; `{"seconds": 0}` apaga ya.
 
 **Probado**: lectura de configuración, servo, relés, mediana del ultrasonido y páginas de la OLED en C++ de escritorio con ArduinoJson real
-(`firmware/tests/run_host_tests.sh`). **Compilado** con `arduino-cli` y el core `esp32:esp32` 3.3.12 (ESP32 Dev Module, 93 % de la flash).
-**Sin probar**: el hardware real.
+(`firmware/tests/run_host_tests.sh`). **Compilación verificada** con `arduino-cli` y el core ESP32 3.3.12 (sketch 95 % de flash, 37 % de RAM;
+18/11/2026). **Sin probar en hardware**: el flasheo y la tira WS2812 los hace el usuario en el montaje real.
 
-## Credenciales del firmware (`secrets.h`)
-`secrets.h` (misma carpeta que el `.ino`) guarda `SUPABASE_URL`, `SUPABASE_ANON_KEY` e `INGEST_KEY`; está en `.gitignore`.
-Copia `secrets.h.example` y rellénalo. Sin ese archivo el sketch compila igual y el respaldo en Supabase queda desactivado
-(las macros caen a `""`).
+La v2.3 conserva los pines del esquema del montaje (suelo 34, DS18B20 5, LDR 32/33/35/36, HC-SR04 TRIG 18 / ECHO 23, servo 19, tira WS2812 25).
+
+## Ojos de la pantalla OLED
+La pantalla alterna una cara con las lecturas. La cara muestra el ánimo de la planta que publica el backend (retenido) en
+`simon/<id>/mood`: **feliz** (todo bien), **preocupada** (aviso, aptitud < 75 % o tanque bajo), **triste** (alerta crítica o aptitud < 40 %)
+y **dormida** (sin datos). La regla está en `backend/app/twin.py::plant_mood` y en `frontend/src/mood.ts`.

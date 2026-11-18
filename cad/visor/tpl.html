@@ -1,0 +1,165 @@
+<title>Maqueta Simón 3D</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500&display=swap">
+<style>
+/* Layout: visor 3D a la derecha, árbol de ensambles y piezas a la izquierda; en móvil el visor va arriba */
+:root{--bg:#f3f5f6;--panel:#ffffff;--line:#d5dce0;--fg:#1c2429;--mute:#5f6e77;--accent:#0d7a6e;--accent-fg:#ffffff;--view:#e4eaed;--row:#eef2f4;--sel:#d6efe9;
+--font-d:"Space Grotesk",system-ui,sans-serif;--font-b:Inter,system-ui,sans-serif}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#121719;--panel:#192024;--line:#2b363c;--fg:#e4eaed;--mute:#93a3ac;--accent:#3cc4b0;--accent-fg:#06201c;--view:#1d2529;--row:#222c31;--sel:#18403a;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#121719;--panel:#192024;--line:#2b363c;--fg:#e4eaed;--mute:#93a3ac;--accent:#3cc4b0;--accent-fg:#06201c;--view:#1d2529;--row:#222c31;--sel:#18403a;color-scheme:dark}
+html,body{height:100%}
+body{background:var(--bg);color:var(--fg);font:14px/1.4 var(--font-b);margin:0;padding-left:max(0px,env(safe-area-inset-left,0px));padding-right:max(0px,env(safe-area-inset-right,0px))}
+#app{display:grid;grid-template-columns:340px minmax(0,1fr);height:100%}
+aside{background:var(--panel);border-right:1px solid var(--line);overflow:auto;padding:16px;display:flex;flex-direction:column;gap:14px;min-width:0}
+h1{font:700 20px/1.2 var(--font-d);margin:0}
+.sub{color:var(--mute);font-size:12px;margin:2px 0 0}
+.ctl{display:grid;gap:8px}
+.ctl label{display:grid;grid-template-columns:96px 1fr 40px;gap:8px;align-items:center;font-size:12px;color:var(--mute)}
+.ctl output{font-variant-numeric:tabular-nums;text-align:right;color:var(--fg)}
+input[type=range]{width:100%;accent-color:var(--accent)}
+.btns{display:flex;flex-wrap:wrap;gap:6px}
+button{font:500 12px var(--font-b);background:var(--row);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:6px 10px;cursor:pointer}
+button:hover{border-color:var(--accent)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.asm{border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.asm>.h{display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--row);font:500 13px var(--font-d)}
+.asm>.h .n{margin-left:auto;color:var(--mute);font:400 11px var(--font-b)}
+.part{display:flex;align-items:center;gap:8px;padding:5px 10px 5px 22px;border-top:1px solid var(--line);font-size:12px;cursor:pointer}
+.part.sel{background:var(--sel)}
+.part .sw{width:10px;height:10px;border-radius:2px;flex:none;border:1px solid var(--line)}
+.part .t{margin-left:auto;font-size:10px;color:var(--mute);text-transform:uppercase;letter-spacing:.06em;white-space:nowrap}
+.part span.nm{min-width:0;overflow-wrap:anywhere}
+input[type=checkbox]{accent-color:var(--accent);margin:0}
+#view{position:relative;min-width:0;min-height:0;background:var(--view)}
+#cv{position:absolute;inset:0;width:100%;height:100%;display:block}
+#info{position:absolute;left:12px;bottom:12px;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:6px 10px;font-size:12px;max-width:calc(100% - 24px)}
+#hint{position:absolute;right:12px;top:12px;font-size:11px;color:var(--mute)}
+.note{font-size:11px;color:var(--mute);line-height:1.5}
+@media (max-width:760px){#app{grid-template-columns:1fr;grid-template-rows:55% 45%}#view{order:-1}aside{border-right:0;border-top:1px solid var(--line);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}.ctl label{grid-template-columns:84px 1fr 38px}}
+</style>
+<div id="app">
+<aside>
+ <div><h1>Maqueta Simón</h1><p class="sub">Jardín inteligente · escala 0,5 · medidas en mm</p></div>
+ <div class="ctl">
+  <label>Explosionar<input id="ex" type="range" min="0" max="100" value="0"><output id="exo">0</output></label>
+  <label>Tapa lámpara<input id="dr" type="range" min="0" max="105" value="0"><output id="dro">0°</output></label>
+  <label>Transp. carcasa<input id="op" type="range" min="10" max="100" value="100"><output id="opo">100</output></label>
+ </div>
+ <div class="btns">
+  <button id="bAll">Todo</button><button id="bPrint">Solo imprimibles</button><button id="bRef">Solo referencias</button><button id="bNone">Nada</button><button id="bHide">Ocultar selección</button><button id="bIso">Aislar selección</button><button id="bReset">Restablecer vista</button>
+ </div>
+ <div id="tree"></div>
+ <p class="note">Las piezas “ref.” son componentes comprados o volúmenes de comprobación (tierra, agua, bomba, pantalla, servo, acetatos): no se imprimen. La tapa sube con el servo (el brazo empuja una columna fija); el mecanismo es conceptual, valida el recorrido con tu servo.</p>
+</aside>
+<div id="view"><canvas id="cv"></canvas><div id="hint">Arrastra: girar · Rueda: zoom · Clic derecho: mover</div><div id="info">Selecciona una pieza</div></div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+const DATA=__DATA__;
+const cssv=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const cv=document.getElementById('cv'),view=document.getElementById('view');
+const renderer=new THREE.WebGLRenderer({canvas:cv,antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+const scene=new THREE.Scene();
+const camera=new THREE.PerspectiveCamera(35,1,5,6000);camera.up.set(0,0,1);
+const controls=new THREE.OrbitControls(camera,cv);controls.enableDamping=true;
+scene.add(new THREE.HemisphereLight(0xffffff,0x667788,.85));
+const dl=new THREE.DirectionalLight(0xffffff,.8);dl.position.set(300,-400,600);scene.add(dl);
+const dl2=new THREE.DirectionalLight(0xffffff,.35);dl2.position.set(-400,300,200);scene.add(dl2);
+function setBg(){renderer.setClearColor(new THREE.Color(cssv('--view')||'#e4eaed'))}
+setBg();matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{setBg()});
+new MutationObserver(setBg).observe(document.documentElement,{attributes:true});
+const b64=s=>{const b=atob(s),u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return u.buffer};
+const HID0=new Set(['sustrato','agua_deposito']);
+const EXDIR={'Contenedor principal':[0,0,0],'Bandeja de tierra':[0,0,120],'Sistema de riego':[0,0,230],'Depósito de agua':[150,0,90],'Cajita de la bomba':[260,0,0],'Electrónica y cables':[0,170,0],'Lámpara':[0,0,150]};
+const parts=[],byName={};
+const world=new THREE.Group();scene.add(world);
+const box=new THREE.Box3();
+DATA.parts.forEach(d=>{
+  const q=new Uint16Array(b64(d.v)),ix=d.i32?new Uint32Array(b64(d.i)):new Uint16Array(b64(d.i));
+  const pos=new Float32Array(q.length);
+  for(let i=0;i<q.length;i++){const k=i%3;pos[i]=d.lo[k]+q[i]/65535*d.sz[k]}
+  let g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(pos,3));g.setIndex(new THREE.BufferAttribute(ix,1));
+  g=g.toNonIndexed();g.computeVertexNormals();g.computeBoundingBox();
+  const c=new THREE.Color(d.rgb[0],d.rgb[1],d.rgb[2]);const hsl={};c.getHSL(hsl);c.setHSL(hsl.h,hsl.s,Math.max(hsl.l,.2));
+  const alpha=d.ref?.45:1;
+  const mat=new THREE.MeshStandardMaterial({color:c,roughness:.6,metalness:.05,transparent:d.ref,opacity:alpha,side:d.ref?THREE.DoubleSide:THREE.FrontSide,depthWrite:!d.ref});
+  const mesh=new THREE.Mesh(g,mat);mesh.userData.name=d.name;
+  const grp=new THREE.Group();grp.add(mesh);world.add(grp);
+  const ctr=new THREE.Vector3();g.boundingBox.getCenter(ctr);
+  const p={d,mesh,grp,mat,ctr,base:alpha,visible:!(d.hidden||HID0.has(d.name)),door:!!d.pivot};
+  parts.push(p);byName[d.name]=p;box.expandByObject(mesh);
+});
+const asmC={};
+DATA.assemblies.forEach(a=>{const b=new THREE.Box3();parts.filter(p=>p.d.asm===a).forEach(p=>b.union(p.mesh.geometry.boundingBox));asmC[a]=b.getCenter(new THREE.Vector3())});
+function layout(){
+  const t=ex.value/100,ang=dr.value*Math.PI/180;
+  parts.forEach(p=>{
+    const dir=EXDIR[p.d.asm]||[0,0,0];const ac=asmC[p.d.asm]||p.ctr;
+    p.grp.position.set(dir[0]*t+(p.ctr.x-ac.x)*.5*t,dir[1]*t+(p.ctr.y-ac.y)*.5*t,dir[2]*t+(p.ctr.z-ac.z)*.5*t);
+    p.grp.rotation.set(0,0,0);
+    if(p.d.mrole){const M=DATA.mech,th=dr.value*Math.PI/180,rad=Math.PI/180;
+      const Ar=[M.ay*Math.cos(th)+M.az*Math.sin(th),-M.ay*Math.sin(th)+M.az*Math.cos(th)];
+      const dy=Ar[0]-M.S[0],dz=Ar[1]-M.S[1],dd=Math.hypot(dy,dz);
+      const bb=Math.acos(Math.max(-1,Math.min(1,(M.c*M.c+dd*dd-M.L*M.L)/(2*M.c*dd))));const ph=Math.atan2(dz,dy)+M.sg*bb;
+      const Cr=[M.S[0]+M.c*Math.cos(ph),M.S[1]+M.c*Math.sin(ph)];
+      const A0=[M.ay,M.az],C0=M.C0,H=M.H;let P0=[0,0],dl=0,T=[0,0];
+      if(p.d.mrole==='horn'){P0=[H[0]+M.S[0],H[1]+M.S[1]];dl=ph-M.phi0*rad}
+      else if(p.d.mrole==='rod'){P0=[H[0]+C0[0],H[1]+C0[1]];dl=Math.atan2(Ar[1]-Cr[1],Ar[0]-Cr[0])-Math.atan2(A0[1]-C0[1],A0[0]-C0[0]);T=[Cr[0]-C0[0],Cr[1]-C0[1]]}
+      else if(p.d.mrole==='pinC'){T=[Cr[0]-C0[0],Cr[1]-C0[1]]}
+      else if(p.d.mrole==='pinA'){T=[Ar[0]-A0[0],Ar[1]-A0[1]]}
+      const off=p.grp.position.clone();p.grp.rotation.x=dl;
+      p.grp.position.set(off.x,off.y+P0[0]-(P0[0]*Math.cos(dl)-P0[1]*Math.sin(dl))+T[0],off.z+P0[1]-(P0[0]*Math.sin(dl)+P0[1]*Math.cos(dl))+T[1])}
+    if(p.d.pivot){const pv=p.d.pivot,off=p.grp.position.clone();const sg=pv[1]>0?-1:1;
+      // gira sobre el eje X que pasa por (y,z) del pivote: el borde delantero sube
+      const a=sg*ang;p.grp.rotation.x=a;
+      p.grp.position.set(off.x,off.y+pv[1]-(pv[1]*Math.cos(a)-pv[2]*Math.sin(a)),off.z+pv[2]-(pv[1]*Math.sin(a)+pv[2]*Math.cos(a)))}
+    p.grp.visible=p.visible;
+  });
+  exo.textContent=ex.value;dro.textContent=dr.value+'°';
+}
+function fit(){const s=box.getSize(new THREE.Vector3()),c=box.getCenter(new THREE.Vector3());
+  const r=Math.max(s.x,s.y,s.z)*1.25;camera.position.set(c.x+r*.9,c.y-r*1.5,c.z+r*.6);controls.target.copy(c);controls.update()}
+function resize(){const w=view.clientWidth,h=view.clientHeight;renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix()}
+new ResizeObserver(resize).observe(view);resize();fit();
+(function loop(){requestAnimationFrame(loop);controls.update();renderer.render(scene,camera)})();
+// árbol
+const tree=document.getElementById('tree'),rows={},boxes={};let sel=null;
+DATA.assemblies.forEach(a=>{
+  const ps=parts.filter(p=>p.d.asm===a);if(!ps.length)return;
+  const el=document.createElement('div');el.className='asm';
+  el.innerHTML='<div class="h"><input type="checkbox" aria-label="Ensamble '+a+'"><span>'+a+'</span><span class="n">'+ps.length+' piezas</span></div>';
+  const ah=el.querySelector('input');boxes[a]=ah;
+  ah.onchange=()=>{ps.forEach(p=>p.visible=ah.checked);sync();layout()};
+  ps.forEach(p=>{
+    const r=document.createElement('div');r.className='part';
+    r.innerHTML='<input type="checkbox" aria-label="'+p.d.name+'"><i class="sw"></i><span class="nm">'+p.d.name.replace(/_/g,' ')+'</span><span class="t">'+(p.d.ref?'ref.':p.d.printable?'imprimir':'')+'</span>';
+    r.querySelector('.sw').style.background='#'+p.mat.color.getHexString();
+    r.querySelector('input').onchange=e=>{p.visible=e.target.checked;sync();layout()};
+    r.onclick=e=>{if(e.target.tagName!=='INPUT')select(p)};rows[p.d.name]=r;p.cb=r.querySelector('input');el.appendChild(r)});
+  tree.appendChild(el);
+});
+function sync(){parts.forEach(p=>p.cb.checked=p.visible);DATA.assemblies.forEach(a=>{const ps=parts.filter(p=>p.d.asm===a);if(boxes[a]){boxes[a].checked=ps.every(p=>p.visible);boxes[a].indeterminate=!boxes[a].checked&&ps.some(p=>p.visible)}})}
+function select(p){
+  if(sel){rows[sel.d.name].classList.remove('sel');sel.mat.emissive.setHex(0)}
+  sel=p;const info=document.getElementById('info');
+  if(p){rows[p.d.name].classList.add('sel');p.mat.emissive.setHex(0x0d4a42);const s=p.d.sz;
+    info.textContent=p.d.name+' · '+s.map(v=>v.toFixed(1)).join(' × ')+' mm'+(p.d.ref?' · referencia':'')+(p.d.pivot||p.d.mrole?' · se mueve con el deslizador de la tapa':'')}
+  else info.textContent='Selecciona una pieza'}
+const ray=new THREE.Raycaster(),mv=new THREE.Vector2();let down=null;
+cv.addEventListener('pointerdown',e=>down=[e.clientX,e.clientY]);
+cv.addEventListener('pointerup',e=>{if(!down||Math.hypot(e.clientX-down[0],e.clientY-down[1])>4)return;
+  const r=cv.getBoundingClientRect();mv.set((e.clientX-r.left)/r.width*2-1,-(e.clientY-r.top)/r.height*2+1);ray.setFromCamera(mv,camera);
+  const hit=ray.intersectObjects(parts.filter(p=>p.visible).map(p=>p.mesh))[0];select(hit?byName[hit.object.userData.name]:null)});
+const setAll=f=>{parts.forEach(p=>p.visible=f(p));sync();layout()};
+bAll.onclick=()=>setAll(()=>true);bNone.onclick=()=>setAll(()=>false);
+bPrint.onclick=()=>setAll(p=>!p.d.ref&&!p.d.hidden);bRef.onclick=()=>setAll(p=>p.d.ref);
+bHide.onclick=()=>{if(sel){sel.visible=false;sync();layout()}};
+bIso.onclick=()=>{if(sel)setAll(p=>p===sel)};
+bReset.onclick=()=>{ex.value=0;dr.value=0;op.value=100;opacity();fit();layout()};
+function opacity(){const v=op.value/100;opo.textContent=op.value;
+  ['contenedor_principal','labio','bandeja_tierra','deposito_agua','tapa_deposito','lampara_cuerpo'].forEach(n=>{const p=byName[n];if(!p)return;p.mat.transparent=v<1||p.d.ref;p.mat.opacity=v;p.mat.depthWrite=v>=.95})}
+ex.oninput=layout;dr.oninput=layout;op.oninput=opacity;
+sync();layout();
+</script>

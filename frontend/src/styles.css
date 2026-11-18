@@ -170,7 +170,7 @@ code {
 .devsel { display: flex; align-items: center; gap: 14px; min-width: 0; height: 44px; padding: 0 16px 0 6px; border-radius: 999px; background: var(--glass-strong); border: 1px solid var(--line); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
 .select { appearance: none; -webkit-appearance: none; background: transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2356645c' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") right 8px center / 12px no-repeat; border: 0; padding: 6px 26px 6px 12px; min-height: 36px; font-weight: 650; font-size: 14.5px; max-width: 240px; text-overflow: ellipsis; cursor: pointer; }
 .chip { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--ink-2); white-space: nowrap; }
-.chip em { font-style: normal; color: var(--ink-2); opacity: 0.85; }
+.chip em { font-style: normal; color: var(--ink-2); }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-3); flex: none; }
 .dot.ok { background: var(--leaf); box-shadow: 0 0 0 3px color-mix(in srgb, var(--leaf) 25%, transparent); }
 .dot.warn { background: var(--sun); }
@@ -747,3 +747,13 @@ code {
 /* avisos dentro de la ficha: una línea con filete, no una tarjeta dentro de otra */
 .panel .note, .m-detail .note { margin: 0; padding: 20px 22px; border: 0; border-top: 1px solid var(--line); border-radius: 0; background: transparent; }
 .panel .note.error b, .m-detail .note.error b { color: var(--crit-ink); }
+
+/* tira LED RGB: selector de color y brillo */
+.act-color { display: grid; gap: 6px; }
+.act-swatches { display: flex; flex-wrap: wrap; gap: 6px; }
+.act-sw { width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--line); padding: 0; cursor: pointer; position: relative; overflow: hidden; }
+.act-sw.sel { outline: 2px solid var(--ink); outline-offset: 2px; }
+.act-sw.custom { background: conic-gradient(#f33, #fa0, #ee0, #3c3, #0cc, #36f, #c3f, #f33); }
+.act-sw.custom input { opacity: 0; position: absolute; inset: 0; width: 100%; height: 100%; cursor: pointer; }
+.act-bright { display: grid; gap: 2px; }
+.act-bright input { width: 100%; }

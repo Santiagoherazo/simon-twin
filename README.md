@@ -41,12 +41,13 @@ Topics MQTT: `simon/<id>/telemetry` (dispositivo→broker), `simon/<id>/status` 
 | Endpoint | Auth |
 |---|---|
 | `GET /health /crops /soils /devices` · `GET /devices/{id}/latest /history /state` | abierto (solo localhost por defecto) |
-| `POST /ingest/{id}` | `X-Device-Key` |
+| `POST /ingest/{id}` | abierto (si generas una clave de dispositivo con `POST /devices/{id}/ingest-key`, entonces exige `X-Device-Key`) |
 | `POST /devices/{id}/simulate` | abierto |
-| `POST /devices`, `PUT /devices/{id}`, `POST /devices/{id}/ingest-key`, `POST /devices/{id}/import`, `POST /devices/{id}/pump` | `X-API-Key` |
+| `POST /devices`, `PUT /devices/{id}`, `POST /devices/{id}/import`, `POST /devices/{id}/pump`, actuadores, configuración | abierto: ya no piden ninguna clave |
+| `/admin/notebooks…` (modelos) | abierto; solo piden `X-API-Key` si pones `MODELS_REQUIRE_KEY=true` |
 
 Ejemplos de respuesta: `docs/state.sample.json`, `docs/simulate.sample.json`. Prueba de punta a punta:
-`API_URL=http://localhost:8000 API_KEY=... python scripts/smoke_test.py`.
+`API_URL=http://localhost:8000 python scripts/smoke_test.py`.
 
 ## La interfaz (PC y celular)
 
@@ -71,7 +72,8 @@ El gemelo 3D reproduce la matera real: cuerpo negro brillante de esquinas redond
 - Todo escucha en 127.0.0.1. Para internet pon un proxy con **TLS** (MQTT `wss://`, HTTPS) y restringe CORS (`CORS_ORIGINS`).
 - La contraseña del usuario `viewer` queda dentro del JavaScript del navegador: es de solo lectura, pero es pública.
 - Los GET no piden autenticación; añádela si el jardín es privado.
-- Cambia todas las contraseñas del `.env`; la `API_KEY` manda la bomba.
+- Cambia todas las contraseñas del `.env`. El riego, los actuadores y la configuración no piden clave (proyecto académico); **solo los cuadernos de modelos piden la `API_KEY`** (cabecera `X-API-Key`), porque ejecutan código Python en el servidor (`MODELS_REQUIRE_KEY=true` por defecto; sin `API_KEY` definida quedan cerrados).
+- Los cuadernos corren como el usuario sin privilegios del contenedor, con tiempo máximo por celda, pero sin aislamiento de red ni de memoria. Si el servidor guarda algo sensible, no lo expongas a internet sin proxy, TLS y la clave.
 
 ## App Android (Capacitor + CI)
 
@@ -88,7 +90,7 @@ El frontend está envuelto con Capacitor (`frontend/android`). GitHub Actions co
 Ver [docs/railway.md](docs/railway.md): un servicio por carpeta (Root Directory), variables y puertos.
 
 ## Rendimiento en celular (gama media y baja)
-En APK/celular la calidad empieza en **Baja** y la escena pasa a un modo ligero: materiales Lambert/Phong en vez de PBR (sin mapas de normales ni clearcoat), sin HDRI ni PMREM (fondo de color), **sin mapas de sombras** (una mancha de sombra falsa bajo la matera), texturas procedurales de 128–256 px, hojas con menos triángulos, 30 fps y sin recompilar shaders al arrancar. El PC (Alta) y las tabletas (Media) no cambian.
+En el **celular** los gráficos arrancan en **Sin 3D** (solo datos; el botón «Con 3D» lo activa en Baja) y en la **tableta** en Media; el PC arranca en **Alta** (ver `docs/diseno.md`, «Gráficos según el equipo»). Cuando se activa el 3D en un celular la calidad es **Baja** y la escena pasa a un modo ligero: materiales Lambert/Phong en vez de PBR (sin mapas de normales ni clearcoat), sin HDRI ni PMREM (fondo de color), **sin mapas de sombras** (una mancha de sombra falsa bajo la matera), texturas procedurales de 128–256 px, hojas con menos triángulos, 30 fps y sin recompilar shaders al arrancar. El PC (Alta) y las tabletas (Media) no cambian.
 
 Medido en Chromium con la CPU 4× más lenta y render por software (no es un celular real): bloqueo del hilo principal al cargar **16 s → 2,2 s**, mayor congelamiento 8 s → 1 s, shaders 40 → 14, texturas 31 → 10, triángulos 82 k → 37 k.
 Los materiales se deciden al cargar: si cambias la calidad a mano, recarga. `?fps` muestra fps, resolución, triángulos, shaders y tiempo del primer cuadro (úsalo en el celular); `?perf` expone el renderer para medir.

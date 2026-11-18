@@ -11,9 +11,7 @@ interface Props {
   version: number
   warnings: string[]
   notebooks: NbMeta[] | null
-  hasKey: boolean
   onGo: (s: SectionId) => void
-  onNeedKey: () => void
 }
 
 const when = (iso: string | null) => {
@@ -26,7 +24,7 @@ const when = (iso: string | null) => {
   return `hace ${Math.round(s / 86400)} d`
 }
 
-export function Overview({ device, cfg, version, warnings, notebooks, hasKey, onGo, onNeedKey }: Props) {
+export function Overview({ device, cfg, version, warnings, notebooks, onGo }: Props) {
   const sOn = cfg?.sensors.filter((s) => s.enabled).length ?? 0
   const aOn = cfg?.actuators.filter((s) => s.enabled).length ?? 0
   const iOn = cfg?.indicators.filter((s) => s.enabled).length ?? 0
@@ -36,7 +34,7 @@ export function Overview({ device, cfg, version, warnings, notebooks, hasKey, on
     { id: 'sensors', label: 'Sensores', value: String(sOn), sub: cfg ? `de ${cfg.sensors.length} configurados` : '—', icon: 'sensor' },
     { id: 'actuators', label: 'Actuadores', value: String(aOn), sub: cfg ? `de ${cfg.actuators.length} configurados` : '—', icon: 'actuator' },
     { id: 'indicators', label: 'Indicadores', value: String(iOn), sub: cfg ? `de ${cfg.indicators.length} configurados` : '—', icon: 'formula' },
-    { id: 'models', label: 'Modelos en vivo', value: notebooks ? String(liveModels.length) : '—', sub: notebooks ? `${notebooks.length} cuaderno${notebooks.length === 1 ? '' : 's'}` : hasKey ? 'cargando…' : 'requiere API key', icon: 'lab' },
+    { id: 'models', label: 'Modelos en vivo', value: notebooks ? String(liveModels.length) : '—', sub: notebooks ? `${notebooks.length} cuaderno${notebooks.length === 1 ? '' : 's'}` : 'cargando…', icon: 'lab' },
   ]
 
   return (
@@ -83,22 +81,19 @@ export function Overview({ device, cfg, version, warnings, notebooks, hasKey, on
       <div className="ov-cols">
         <article className="ov-card">
           <h3>Modelos activos</h3>
-          {!hasKey ? (
-            <p className="muted">Ingresa la API key para ver tus cuadernos.</p>
-          ) : !notebooks ? (
+          {!notebooks ? (
             <p className="muted">Cargando…</p>
           ) : liveModels.length ? (
             <ul className="ov-list">{liveModels.map((n) => <li key={n.id}><span className="dot ok" /> {n.name}</li>)}</ul>
           ) : (
             <p className="muted">Ningún modelo se está aplicando a los datos en vivo.</p>
           )}
-          <button type="button" className="btn sm" onClick={() => (hasKey ? onGo('models') : onNeedKey())}>{hasKey ? 'Abrir laboratorio' : 'Ingresar API key'}</button>
+          <button type="button" className="btn sm" onClick={() => onGo('models')}>Abrir laboratorio</button>
         </article>
 
         <article className="ov-card">
           <h3>Para empezar</h3>
           <ul className="ov-check">
-            <li className={hasKey ? 'done' : ''}><Icon name="check" size={15} /> <button type="button" onClick={onNeedKey}>Ingresar la API key</button></li>
             <li className={sOn > 0 ? 'done' : ''}><Icon name="check" size={15} /> <button type="button" onClick={() => onGo('sensors')}>Activar al menos un sensor</button></li>
             <li className={aOn > 0 ? 'done' : ''}><Icon name="check" size={15} /> <button type="button" onClick={() => onGo('actuators')}>Configurar el riego</button></li>
             <li className={liveModels.length > 0 ? 'done' : ''}><Icon name="check" size={15} /> <button type="button" onClick={() => onGo('models')}>Activar un modelo en vivo</button></li>

@@ -15,7 +15,7 @@
    envía lotes de 500 con `ON CONFLICT DO NOTHING` y borra lo enviado. Si Supabase o internet fallan, la cola crece y se reintenta
    solo (tope `BACKUP_OUTBOX_MAX`, 500 000 filas).
 4. `GET /health` muestra `redis`, y `backup` con `remote_ok`, `last_sync` y `pending` (filas por respaldar).
-5. Histórico que ya tenías: `POST /admin/backup/backfill?days=30` con tu `X-API-Key`.
+5. Histórico que ya tenías: `POST /admin/backup/backfill?days=30`.
 
 No se copia el hash de la clave de ingesta de los dispositivos.
 
@@ -27,10 +27,10 @@ ESP32 ──MQTT──► tu servidor ──► base local ──(cola, cada 10 
 ```
 - **El "cron"** es el ciclo del backend (cada `BACKUP_INTERVAL_S`, 10 s): envía la cola local a Supabase **y** trae el buzón
   `simon_inbox` a la base local. Corre dentro del backend, sin otro servicio. Si prefieres un cron externo, estos endpoints hacen
-  una pasada completa (con `X-API-Key`): `POST /admin/sync/run`.
-- **ESP32 → Supabase**: si no hay MQTT durante 45 s pero sí WiFi, el firmware (v1.5+) manda lotes de 10 lecturas por HTTPS a
-  `simon_inbox`. Crea `firmware/esp32_telemetria/secrets.h` a partir de `secrets.h.example` y rellena `SUPABASE_URL`,
-  `SUPABASE_ANON_KEY` e `INGEST_KEY` (la clave de ingesta sale de `POST /devices/esp32-01/ingest-key`). `secrets.h` no se versiona.
+  una pasada completa: `POST /admin/sync/run`.
+- **ESP32 → Supabase**: si no hay MQTT durante 45 s pero sí WiFi, el firmware (v1.5) manda lotes de 10 lecturas por HTTPS a
+  `simon_inbox`. Rellena `SUPABASE_URL`, `SUPABASE_ANON_KEY` e `INGEST_KEY` en el sketch (la clave de ingesta sale de
+  `POST /devices/esp32-01/ingest-key`).
 - **Seguridad del buzón**: la clave `anon` solo puede INSERTAR en `simon_inbox` (RLS + política que limita `device_id` y el
   tamaño); no puede leer nada. El backend descarta filas con clave de dispositivo incorrecta, JSON inválido o fuera de rango
   (`SYNC_REQUIRE_DEVICE_KEY=true`). Un tercero con la clave `anon` solo puede ensuciar el buzón, no la base real.

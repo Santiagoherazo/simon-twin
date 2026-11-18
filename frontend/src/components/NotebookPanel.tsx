@@ -284,6 +284,7 @@ export function NotebookPanel({ apiKey, deviceId, onNeedKey }: Props) {
   const [list, setList] = useState<NbMeta[]>([])
   const [templates, setTemplates] = useState<NbTemplate[]>([])
   const [loaded, setLoaded] = useState(false)
+  const [locked, setLocked] = useState(false)   // el servidor exige clave para los modelos
   const [id, setId] = useState('')
   const [name, setName] = useState('')
   const [cells, setCells] = useState<Cell[]>([])
@@ -313,13 +314,14 @@ export function NotebookPanel({ apiKey, deviceId, onNeedKey }: Props) {
   const fail = (e: unknown) => setMsg({ ok: false, text: e instanceof ApiError || e instanceof Error ? e.message : 'Error desconocido' })
 
   const refresh = useCallback(async () => {
-    if (!apiKey) return
     try {
       const [l, t] = await Promise.all([nbList(apiKey), nbTemplates(apiKey)])
       setList(l)
       setTemplates(t)
+      setLocked(false)
       setMsg(null)
     } catch (e) {
+      if (e instanceof ApiError && e.status === 401) { setLocked(true); setMsg(null); return }
       setMsg({ ok: false, text: e instanceof Error ? e.message : 'Error desconocido' })
     } finally {
       setLoaded(true)
@@ -575,13 +577,13 @@ export function NotebookPanel({ apiKey, deviceId, onNeedKey }: Props) {
   }
 
   // ------------------------------------------------------------------------------------------
-  if (!apiKey)
+  if (locked && !apiKey)
     return (
       <div className="adm-empty nb-locked">
         <div className="adm-empty-ico" aria-hidden="true">🔒</div>
         <h2>Laboratorio de modelos</h2>
-        <p>Los cuadernos guardan código que corre en tu servidor, por eso piden la <b>API key</b>.</p>
-        <button className="btn primary" onClick={onNeedKey}>Ingresar API key</button>
+        <p>Este servidor exige una clave para los modelos.</p>
+        <button className="btn primary" onClick={onNeedKey}>Ingresar clave</button>
       </div>
     )
 

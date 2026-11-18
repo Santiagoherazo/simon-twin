@@ -3,7 +3,7 @@
 # Topics:
 #   simon/<device>/telemetry   dispositivo -> broker   (lecturas)
 #   simon/<device>/status      dispositivo -> broker   (online/offline, retained + LWT)
-#   simon/<device>/cmd/pump    backend -> dispositivo  (comandos)
+#   simon/<device>/cmd/<actuador>  backend -> dispositivo (bomba, luz, servo; {"seconds":N}, 0 = apagar)
 
 # Reglas por patrón (%u = usuario que se conecta): cada dispositivo solo escribe
 # en SUS topics y solo lee SUS comandos.

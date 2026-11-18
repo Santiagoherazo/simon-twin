@@ -1,6 +1,6 @@
 # Panel administrativo y configuración remota del ESP32
 
-Abre `https://TU-SITIO/#/admin` (escribe la API key para guardar).
+Abre `https://TU-SITIO/#/admin` (no pide ninguna clave).
 
 ## Qué se edita
 - **Sensores** (solo los del equipo): DHT11, humedad de suelo, DS18B20, 4 LDR y ultrasonido HC-SR04 (más «Simulado» para pruebas). Cada uno con su
@@ -23,12 +23,12 @@ En el sketch están activados `USE_DHT`, `USE_DS18B20`, `USE_SERVO` (ESP32Servo)
 Si el panel configura un sensor cuyo driver no está compilado, el ESP32 lo omite y lo dice por el monitor serie.
 
 ## API
-- `GET /catalog` · `GET /devices/<id>/config[?v=N][&full=1]` · `PUT /admin/devices/<id>/config` (API key)
+- `GET /catalog` · `GET /devices/<id>/config[?v=N][&full=1]` · `PUT /admin/devices/<id>/config`
 - `POST /devices/<id>/actuators/<clave>/command {"seconds":N}` (API key; topic `simon/<id>/cmd/<clave>`)
 - El estado del gemelo (`/devices/<id>/state`) trae `custom` (variables e indicadores con su estado ok/bajo/alto), `actuators` y `config_version`.
 
 ## Cuadernos y modelo de cultivo
-La pestaña Modelos se abre **sin API key** (`MODELS_REQUIRE_KEY=false` por defecto). Si escribes una clave arriba se envía igual y debe ser válida; con `MODELS_REQUIRE_KEY=true` pasa a ser obligatoria.
+La pestaña Modelos **exige la API key** (`MODELS_REQUIRE_KEY=true` por defecto) porque cada celda ejecuta código Python en el servidor: quien tenga la clave puede ejecutar código con los permisos del contenedor. Trátala como una contraseña de administrador. Solo en un PC local de desarrollo puedes poner `MODELS_REQUIRE_KEY=false`.
 Pestaña **Modelos**: cuadernos tipo Colab (celdas, variables persistentes, `simon.data()`, `simon.log()`, `simon.alert()`, `@simon.register`). Plantillas: explorar, aprender-humedad, tipo-cultivo. Detalles del motor de cultivo en `modelo-cultivo.md`.
 
 ### Importar y comparar modelos

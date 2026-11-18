@@ -1,0 +1,4 @@
+Submersible pump using 12V motor, por "edcdadstuff" (Printables 695679).
+Licencia CC BY-SA 4.0 (atribución + compartir igual). Archivos originales sin modificar.
+Piezas: housing, housingimpellar, impellarv2, capend. Salida de agua OD 10 mm.
+Medidas del conjunto aprox. 53 x 67 x 101 mm. Requiere un motor 12 V reciclado (de impresora), tornillos/insertos M3 y sellador.

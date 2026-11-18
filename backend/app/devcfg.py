@@ -47,6 +47,8 @@ DRIVER_CATALOG = [
      "help": "Salida digital con tiempo máximo de seguridad: nunca queda encendido más que max_seconds."},
     {"driver": "servo", "kind": "actuator", "label": "Servo", "needs_pin": True,
      "help": "Postigo de la luz indirecta: al abrir va a angle_on y SE QUEDA ahí hasta que lo cierren (vuelve a angle_off). 0-180°. Alimentalo con 5 V externos, no desde el pin del ESP32."},
+    {"driver": "ws2812", "kind": "actuator", "label": "Tira LED RGB WS2812 (8 LED 5050)", "needs_pin": True,
+     "help": "Pin = DATA (GPIO 25 en el montaje). El color y el brillo se cambian desde la interfaz. Alimentala con 5 V (GND común con el ESP32); a plena luz blanca consume ~0,5 A."},
 ]
 
 
@@ -78,7 +80,7 @@ class Actuator(BaseModel):
     model_config = ConfigDict(extra="forbid")
     key: str
     label: str = Field(min_length=1, max_length=40)
-    driver: Literal["relay", "servo"] = "relay"
+    driver: Literal["relay", "servo", "ws2812"] = "relay"
     pin: int | None = Field(default=None, ge=0, le=39)       # None = virtual (solo simulado)
     active_high: bool = True
     angle_on: int = Field(default=90, ge=0, le=180)          # solo servo: posición al activarse
@@ -353,7 +355,7 @@ def config_hardware_confirmado() -> DeviceConfig:
 
     Pines (ESP32 DevKit, según el esquema del montaje):  DHT11 → 4 · suelo → 34 · DS18B20 → 5
     LDR → 32/33/35/36 (todos ADC1) · HC-SR04 → TRIG 18, ECHO 23 · bomba → 26 · luz externa → 27
-    servo → 19 · OLED I2C → SDA 21, SCL 22.
+    servo → 19 · tira WS2812 → 25 · OLED I2C → SDA 21, SCL 22.
     """
     ldr = lambda k, lab, pin: Sensor(key=k, label=lab, driver="analog", pin=pin, unit="%", scale=100 / 4095, min_ok=15)  # noqa: E731
     return DeviceConfig(
@@ -371,6 +373,7 @@ def config_hardware_confirmado() -> DeviceConfig:
             Actuator(key="pump", label="Mini bomba", driver="relay", pin=26, max_seconds=120),
             Actuator(key="light", label="Luz externa", driver="relay", pin=27, max_seconds=86400),
             Actuator(key="servo", label="Luz indirecta", driver="servo", pin=19, angle_on=90, angle_off=0, max_seconds=30),
+            Actuator(key="strip", label="Tira LED RGB", driver="ws2812", pin=25, max_seconds=86400),
         ],
         indicators=[
             Indicator(key="luz_media", label="Luz media (4 LDR)", formula="(ldr_nw + ldr_ne + ldr_sw + ldr_se) / 4", unit="%"),

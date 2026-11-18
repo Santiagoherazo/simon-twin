@@ -61,6 +61,9 @@ class Simon:
             with open(path, encoding="utf-8") as f:
                 rows = json.load(f)
         df = pd.DataFrame(rows)
+        if len(df):
+            # Variables que este equipo no mide (pH, EC, NPK…) llegan vacías: no se ofrecen como columnas
+            df = df.dropna(axis=1, how="all")
         if "ts" in df.columns and len(df):
             # Las lecturas mezclan ISO-8601 con y sin microsegundos: sin format="ISO8601" pandas
             # deduce el formato de la primera fila y falla con el resto.

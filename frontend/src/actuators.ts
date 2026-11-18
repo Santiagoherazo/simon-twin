@@ -1,24 +1,25 @@
 import type { ActuatorState } from './types'
 
-/** Tipos de actuador del equipo: mini bomba, luz externa y servo. */
-export type ActKind = 'pump' | 'light' | 'servo'
+/** Tipos de actuador del equipo: mini bomba, luz externa, servo y tira LED RGB. */
+export type ActKind = 'pump' | 'light' | 'servo' | 'strip'
 
 export const kindOf = (a: Pick<ActuatorState, 'key' | 'label'>): ActKind => {
   const t = `${a.key} ${a.label}`.toLowerCase()
   if (/servo/.test(t)) return 'servo'
+  if (/strip|tira|ws2812|neopixel|rgb/.test(t)) return 'strip'
   if (/luz|light|l[aá]mpara|lamp|led|grow|foco/.test(t)) return 'light'
   return 'pump'
 }
 
 /** Duraciones ofrecidas (s); siempre se recortan al tope de seguridad del actuador. */
-export const OPTIONS: Record<ActKind, number[]> = { pump: [5, 10, 20, 30, 60], light: [60, 300, 900, 1800, 3600], servo: [5, 10, 20, 30] }
+export const OPTIONS: Record<ActKind, number[]> = { pump: [5, 10, 20, 30, 60], light: [60, 300, 900, 1800, 3600], servo: [5, 10, 20, 30], strip: [300, 900, 3600, 14400, 43200] }
 /** Atajos de la botonera de la pantalla principal (3 por actuador). */
-export const QUICK: Record<ActKind, number[]> = { pump: [5, 10, 30], light: [300, 900, 3600], servo: [5, 10, 30] }
-export const VERB: Record<ActKind, string> = { pump: 'Regar', light: 'Encender', servo: 'Abrir' }
+export const QUICK: Record<ActKind, number[]> = { pump: [5, 10, 30], light: [300, 900, 3600], servo: [5, 10, 30], strip: [900, 3600, 14400] }
+export const VERB: Record<ActKind, string> = { pump: 'Regar', light: 'Encender', servo: 'Abrir', strip: 'Encender' }
 /** El servo es un postigo: abrir lo deja abierto hasta que se cierre (no tiene temporizador). */
 export const isLatch = (k: ActKind) => k === 'servo'
 export const stateWord = (k: ActKind, on: boolean | null | undefined) =>
-  k === 'servo' ? (on ? 'abierta' : 'cerrada') : k === 'light' ? (on ? 'encendida' : 'apagada') : on ? 'regando' : 'apagada'
+  k === 'servo' ? (on ? 'abierta' : 'cerrada') : k === 'light' || k === 'strip' ? (on ? 'encendida' : 'apagada') : on ? 'regando' : 'apagada'
 export const dur = (s: number) => {
   const t = Math.round(s)
   const h = Math.floor(t / 3600)

@@ -81,12 +81,14 @@ app.add_middleware(
 # ------------------------------------------------------------------ seguridad -------------
 
 def require_api_key(x_api_key: str = Header(default="")):
+    if not settings.api_key:
+        raise HTTPException(status_code=503, detail="Los modelos están cerrados: define API_KEY en el servidor")
     if not secrets.compare_digest(x_api_key.encode(), settings.api_key.encode()):
         raise HTTPException(status_code=401, detail="API key inválida")
 
 
 def models_access(x_api_key: str = Header(default="")):
-    """Los cuadernos no piden clave salvo que MODELS_REQUIRE_KEY=true; si llega una clave, debe ser válida."""
+    """Única parte con clave: los cuadernos (modelos). No la piden salvo que MODELS_REQUIRE_KEY=true; si llega una clave, debe ser válida."""
     if settings.models_require_key or x_api_key:
         require_api_key(x_api_key)
 
@@ -485,7 +487,9 @@ async def put_device_config(device_id: str, body: DeviceConfig):
 
 
 class ActuatorCommand(BaseModel):
-    seconds: int = Field(ge=0, le=86400, description="0 = apagar ahora; el tope real es el max_seconds del actuador")
+    seconds: int | None = Field(default=None, ge=0, le=86400, description="0 = apagar ahora; el tope real es el max_seconds del actuador. Omitido: solo cambia color/brillo de la tira")
+    color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$", description="solo tira WS2812: color #rrggbb")
+    brightness: int | None = Field(default=None, ge=1, le=100, description="solo tira WS2812: brillo 1-100 %")
 
 
 @app.post("/devices/{device_id}/actuators/{key}/command", dependencies=[Depends(require_api_key)])
@@ -497,14 +501,25 @@ async def actuator_command(device_id: str, key: str, body: ActuatorCommand):
     act = next((a for a in cfg["actuators"] if a["key"] == key and a["enabled"]), None)
     if act is None:
         raise HTTPException(404, "actuador desconocido o desactivado")
-    if body.seconds > act["max_seconds"]:
+    if body.seconds is None and body.color is None and body.brightness is None:
+        raise HTTPException(422, "indica seconds o color/brightness")
+    if body.seconds is not None and body.seconds > act["max_seconds"]:
         raise HTTPException(422, f"máximo {act['max_seconds']} s para {key}")
     online = await app.state.pool.fetchval("SELECT online FROM devices WHERE device_id = $1", device_id)
     if not online:
         raise HTTPException(409, "el dispositivo está offline")
     if app.state.mqtt is None:
         raise HTTPException(503, "sin conexión con el broker MQTT")
-    cmd = {"cmd_id": str(uuid.uuid4()), "seconds": body.seconds, "ts": time.time()}
+    cmd = {"cmd_id": str(uuid.uuid4()), "ts": time.time()}
+    if body.seconds is not None:
+        cmd["seconds"] = body.seconds
+    if body.color is not None or body.brightness is not None:
+        if act["driver"] != "ws2812":
+            raise HTTPException(422, f"{key} no es una tira LED: no admite color ni brillo")
+        if body.color is not None:
+            cmd["color"] = body.color.lower()
+        if body.brightness is not None:
+            cmd["brightness"] = body.brightness
     await app.state.mqtt.publish(f"simon/{device_id}/cmd/{key}", payload=json.dumps(cmd), qos=1)
     return cmd
 

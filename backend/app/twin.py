@@ -258,12 +258,17 @@ async def config_block(pool, device_id: str, readings: dict) -> dict:
     for a in cfg["actuators"]:
         if a["enabled"]:
             on = readings.get("pump_on") if a["key"] == "pump" else extra.get(f"{a['key']}_on")
-            acts.append({"key": a["key"], "label": a["label"], "on": bool(on) if on is not None else None,
-                         "max_seconds": a["max_seconds"]})
+            item = {"key": a["key"], "label": a["label"], "on": bool(on) if on is not None else None,
+                    "max_seconds": a["max_seconds"], "driver": a["driver"]}
+            if a["driver"] == "ws2812":   # color y brillo vigentes (el firmware los reporta como <clave>_rgb y <clave>_br)
+                rgb, br = extra.get(f"{a['key']}_rgb"), extra.get(f"{a['key']}_br")
+                item["color"] = f"#{int(rgb) & 0xFFFFFF:06x}" if isinstance(rgb, (int, float)) else None
+                item["brightness"] = int(br) if isinstance(br, (int, float)) else None
+            acts.append(item)
     return {"custom": custom, "actuators": acts, "config_version": cfg["version"]}
 
 
-async def compute_state(app, device_id: str) -> dict:
+async def _compute_state(app, device_id: str) -> dict:
     snap = await take_snapshot(app, device_id)
     dev, profile, soil, readings = snap.dev, snap.profile, snap.soil, snap.readings
     now = time.time()
@@ -407,11 +412,40 @@ _inflight: set[str] = set()
 _last_pub: dict[str, float] = {}
 
 
+def plant_mood(state: dict) -> dict:
+    """Estado de ánimo de la planta para los ojos de la pantalla: happy / worried / sad / sleep (sin datos).
+
+    sad = hay una alerta crítica, la planta murió o la aptitud es < 40; worried = alerta de aviso, aptitud < 75 o tanque bajo.
+    La misma regla existe en frontend/src/mood.ts (para el modo local sin nube)."""
+    alerts = state.get("alerts") or []
+    if state.get("readings") is None or any(a.get("code") == "no_data" for a in alerts):
+        return {"mood": "sleep", "reason": "sin datos"}
+    crit = [a for a in alerts if a.get("level") == "critical"]
+    warn = [a for a in alerts if a.get("level") == "warn"]
+    overall = (state.get("suitability") or {}).get("overall")
+    dead = bool((state.get("plant") or {}).get("dead"))
+    if crit or dead or (isinstance(overall, (int, float)) and overall < 40):
+        a = crit[0] if crit else None
+        return {"mood": "sad", "reason": (a.get("title") or a.get("message")) if a else "estado crítico"}
+    low_tank = state["readings"].get("tank_ok") is False
+    if warn or low_tank or (isinstance(overall, (int, float)) and overall < 75):
+        a = warn[0] if warn else None
+        return {"mood": "worried", "reason": (a.get("title") or a.get("message")) if a else ("tanque bajo" if low_tank else "condiciones mejorables")}
+    return {"mood": "happy", "reason": "todo bien"}
+
+
+async def compute_state(app, device_id: str) -> dict:
+    state = await _compute_state(app, device_id)
+    state["mood"] = plant_mood(state)
+    return state
+
+
 async def publish_state(app, device_id: str) -> dict | None:
     state = await compute_state(app, device_id)
     client = app.state.mqtt
     if client is not None:
         await client.publish(f"simon/{device_id}/state", payload=json.dumps(state), qos=1, retain=True)
+        await client.publish(f"simon/{device_id}/mood", payload=json.dumps({"mood": state["mood"]["mood"]}), qos=1, retain=True)
     return state
 
 

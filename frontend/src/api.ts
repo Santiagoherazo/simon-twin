@@ -87,7 +87,7 @@ export interface PumpResult {
   ts: number
 }
 
-/** Si no hay nube pero sí ESP32 alcanzable, el riego manual va directo a su servidor local (sin API key). */
+/** Si no hay nube pero sí ESP32 alcanzable, el riego manual va directo a su servidor local (sin claves). */
 export const localRoute: { host: string | null } = { host: null }
 
 export async function pump(id: string, seconds: number, apiKey: string): Promise<PumpResult> {
@@ -114,19 +114,20 @@ export async function pump(id: string, seconds: number, apiKey: string): Promise
 }
 
 /** Enciende un actuador N segundos (bomba, luz externa, servo) o lo apaga ya con seconds = 0. Sin nube va directo al ESP32. */
-export async function actuate(id: string, key: string, seconds: number, apiKey: string): Promise<void> {
-  const s = Math.max(0, Math.floor(seconds))
-  if (key === 'pump' && s > 0) {
+export async function actuate(id: string, key: string, seconds: number | null, apiKey: string, opts: StripOpts = {}): Promise<void> {
+  const s = seconds === null ? null : Math.max(0, Math.floor(seconds))
+  if (key === 'pump' && s !== null && s > 0) {
     await pump(id, s, apiKey)
     return
   }
   if (localRoute.host) {
-    const r = await fetch(`http://${localRoute.host}/api/act?key=${encodeURIComponent(key)}&s=${s}`, { method: 'POST' })
+    const q = (s === null ? '' : `&s=${s}`) + (opts.color ? `&color=${opts.color.replace('#', '')}` : '') + (opts.brightness ? `&b=${opts.brightness}` : '')
+    const r = await fetch(`http://${localRoute.host}/api/act?key=${encodeURIComponent(key)}${q}`, { method: 'POST' })
     if (!r.ok) throw new ApiError(r.status, `El ESP32 rechazó la orden (${r.status}).`)
     return
   }
   try {
-    await commandActuator(id, key, s, apiKey)
+    await commandActuator(id, key, s, apiKey, opts)
   } catch (e) {
     if (e instanceof ApiError) {
       if (e.status === 401) throw new ApiError(401, 'Clave rechazada (401): la API key es incorrecta.')
@@ -164,23 +165,25 @@ export async function putConfig(
   cfg: Pick<DeviceConfigFull, 'report_interval_s' | 'sensors' | 'actuators' | 'indicators' | 'display'>,
   apiKey: string,
 ): Promise<{ ok: boolean; version: number; warnings: string[] }> {
-  try {
-    return await request(`/admin/devices/${encodeURIComponent(id)}/config`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
-      body: JSON.stringify(cfg),
-    })
-  } catch (e) {
+  return request<{ ok: boolean; version: number; warnings: string[] }>(`/admin/devices/${encodeURIComponent(id)}/config`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+    body: JSON.stringify(cfg),
+  }).catch((e) => {
     if (e instanceof ApiError && e.status === 401) throw new ApiError(401, 'Clave rechazada (401): la API key es incorrecta.')
     throw e
-  }
+  })
 }
 
-export const commandActuator = (id: string, key: string, seconds: number, apiKey: string) =>
+export interface StripOpts {
+  color?: string
+  brightness?: number
+}
+export const commandActuator = (id: string, key: string, seconds: number | null, apiKey: string, opts: StripOpts = {}) =>
   request<{ cmd_id: string }>(`/devices/${encodeURIComponent(id)}/actuators/${encodeURIComponent(key)}/command`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
-    body: JSON.stringify({ seconds }),
+    body: JSON.stringify({ ...(seconds === null ? {} : { seconds }), ...opts }),
   })
 
 // ---- cuadernos de modelos (estilo Colab) ----
@@ -229,13 +232,13 @@ export interface PredictResult {
   input?: Record<string, unknown>
 }
 
-const nb = <T>(path: string, apiKey: string, method = 'GET', body?: unknown) =>
+const nb = <T>(path: string, apiKey = '', method = 'GET', body?: unknown) =>
   request<T>(`/admin/${path}`, {
     method,
-    headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+    headers: { 'Content-Type': 'application/json', ...(apiKey ? { 'X-API-Key': apiKey } : {}) },
     body: body === undefined ? undefined : JSON.stringify(body),
   }).catch((e) => {
-    if (e instanceof ApiError && e.status === 401) throw new ApiError(401, 'El servidor pide la API key para los modelos (o la que escribiste no coincide con API_KEY del .env). Escríbela arriba.')
+    if (e instanceof ApiError && e.status === 401) throw new ApiError(401, 'El servidor exige una clave para los modelos y la que enviaste no coincide.')
     if (e instanceof ApiError && e.status === 404) throw new ApiError(404, 'El servidor no tiene los cuadernos: está corriendo una versión vieja del backend. Reconstruye con «docker compose up --build» (o redespliega).')
     throw e
   })

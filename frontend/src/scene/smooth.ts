@@ -30,6 +30,12 @@ export const sm = {
   lai: 0.5,
   day: 0.5,
   tank: 0.78,
+  tankLevel: 0.78, // 0..1 continuo (HC-SR04); sin sensor, 0.78/0.05 según tank_ok
+  ldrNW: 0.5,
+  ldrNE: 0.5,
+  ldrSW: 0.5,
+  ldrSE: 0.5,
+  lid: 0, // tapa de la lámpara (servo): 0 cerrada, 1 abierta
   pump: 0,
   rain: 0,
   airT: 22,
@@ -60,6 +66,12 @@ export function Smoother() {
       lai: v.plant.lai,
       day: FORCE_DAY ?? Math.min(1, Math.sqrt(Math.max(0, v.lux) / 40000)),
       tank: v.tankOk ? 0.78 : 0.05,
+      tankLevel: v.tankPct !== null ? v.tankPct / 100 : v.tankOk ? 0.78 : 0.05,
+      ldrNW: (v.ldr?.nw ?? 50) / 100,
+      ldrNE: (v.ldr?.ne ?? 50) / 100,
+      ldrSW: (v.ldr?.sw ?? 50) / 100,
+      ldrSE: (v.ldr?.se ?? 50) / 100,
+      lid: v.acts.some((a) => a.kind === 'servo' && a.on) ? 1 : 0,
       pump: v.pumpOn ? 1 : 0,
       rain: v.rainMm > 0 ? 1 : 0,
       airT: v.airT ?? 22,
@@ -86,6 +98,12 @@ export function Smoother() {
     sm.lai = MathUtils.damp(sm.lai, tgt.lai, 3, dt)
     sm.day = MathUtils.damp(sm.day, tgt.day, 1.2, dt)
     sm.tank = MathUtils.damp(sm.tank, tgt.tank, 1.4, dt)
+    sm.tankLevel = MathUtils.damp(sm.tankLevel, tgt.tankLevel, 1.2, dt)
+    sm.ldrNW = MathUtils.damp(sm.ldrNW, tgt.ldrNW, 3, dt)
+    sm.ldrNE = MathUtils.damp(sm.ldrNE, tgt.ldrNE, 3, dt)
+    sm.ldrSW = MathUtils.damp(sm.ldrSW, tgt.ldrSW, 3, dt)
+    sm.ldrSE = MathUtils.damp(sm.ldrSE, tgt.ldrSE, 3, dt)
+    sm.lid = MathUtils.damp(sm.lid, tgt.lid, 2.5, dt)
     sm.pump = MathUtils.damp(sm.pump, tgt.pump, 6, dt)
     sm.rain = MathUtils.damp(sm.rain, tgt.rain, 5, dt)
     sm.airT = MathUtils.damp(sm.airT, tgt.airT, 1.5, dt)

@@ -1,5 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import type { ActuatorCfg, DeviceConfigFull, DriverInfo, IndicatorCfg, SensorCfg, SensorDriver } from '../../types'
+import { dur } from '../../actuators'
 import { cleanKey, Field, Icon, num, Section, Switch, uniqueKey, val } from './ui'
 
 export type Cfg = Pick<DeviceConfigFull, 'report_interval_s' | 'sensors' | 'actuators' | 'indicators' | 'display'>
@@ -50,6 +51,7 @@ const ACTUATOR_PRESETS: Preset<ActuatorCfg>[] = [
   { id: 'pump', label: 'Mini bomba', hint: 'Relé · pin 26 · tope 120 s', make: () => mkAct({ key: 'pump', label: 'Mini bomba', pin: 26, max_seconds: 120 }) },
   { id: 'light', label: 'Luz externa', hint: 'Relé · pin 27 · tope 24 h', make: () => mkAct({ key: 'light', label: 'Luz externa', pin: 27, max_seconds: 86400 }) },
   { id: 'servo', label: 'Luz indirecta (servo)', hint: 'Postigo · pin 19 · abre a 90° y se queda abierto', make: () => mkAct({ key: 'servo', label: 'Luz indirecta', driver: 'servo', pin: 19, angle_on: 90, angle_off: 0, max_seconds: 30 }) },
+  { id: 'strip', label: 'Tira LED RGB (WS2812)', hint: '8 LED 5050 · pin 25 · color y brillo desde la interfaz', make: () => mkAct({ key: 'strip', label: 'Tira LED RGB', driver: 'ws2812', pin: 25, max_seconds: 86400 }) },
 ]
 
 interface Common {
@@ -185,7 +187,7 @@ export function SensorsTab({ cfg, patch, drivers, onLoadHardware }: Common & { d
 }
 
 // ------------------------------------------------------------------------------------------ Actuadores
-export function ActuatorsTab({ cfg, patch, drivers, sensorKeys, apiKey, dirty, onTest, onNeedKey }: Common & { drivers: DriverInfo[]; sensorKeys: string[]; apiKey: string; dirty: boolean; onTest: (key: string, seconds: number) => void; onNeedKey: () => void }) {
+export function ActuatorsTab({ cfg, patch, drivers, sensorKeys, dirty, onTest }: Common & { drivers: DriverInfo[]; sensorKeys: string[]; dirty: boolean; onTest: (key: string, seconds: number) => void }) {
   const [menu, setMenu] = useState(false)
   const actuatorDrivers = drivers.filter((d) => d.kind === 'actuator')
   const set = (i: number, p: Partial<ActuatorCfg>) => patch({ actuators: cfg.actuators.map((s, k) => (k === i ? { ...s, ...p } : s)) })
@@ -224,7 +226,7 @@ export function ActuatorsTab({ cfg, patch, drivers, sensorKeys, apiKey, dirty, o
       {cfg.actuators.map((a, i) => {
         const rule = a.auto_variable != null
         const below = a.auto_on_below != null
-        const summary = [a.pin == null ? 'virtual' : `GPIO ${a.pin}`, a.driver === 'servo' ? `cerrada ${a.angle_off}° · abierta ${a.angle_on}°` : null, rule ? `auto: ${a.auto_variable} ${below ? '<' : '>'} ${below ? a.auto_on_below : a.auto_on_above}` : 'manual', `tope ${a.max_seconds} s`].filter(Boolean).join(' · ')
+        const summary = [a.pin == null ? 'virtual' : `GPIO ${a.pin}`, a.driver === 'servo' ? `cerrada ${a.angle_off}° · abierta ${a.angle_on}°` : null, rule ? `auto: ${a.auto_variable} ${below ? '<' : '>'} ${below ? a.auto_on_below : a.auto_on_above}` : 'manual', `tope ${dur(a.max_seconds)}`].filter(Boolean).join(' · ')
         return (
           <Card
             key={i}
@@ -241,11 +243,11 @@ export function ActuatorsTab({ cfg, patch, drivers, sensorKeys, apiKey, dirty, o
               <>
                 {a.driver === 'servo' ? (
                   <>
-                    <button type="button" className="btn sm" onClick={() => (apiKey ? onTest(a.key, 1) : onNeedKey())} disabled={dirty} title={dirty ? 'Guarda los cambios primero' : 'Lo lleva al ángulo abierto'}>Abrir</button>
-                    <button type="button" className="btn sm" onClick={() => (apiKey ? onTest(a.key, 0) : onNeedKey())} disabled={dirty} title={dirty ? 'Guarda los cambios primero' : 'Lo lleva al ángulo cerrado'}>Cerrar</button>
+                    <button type="button" className="btn sm" onClick={() => onTest(a.key, 1)} disabled={dirty} title={dirty ? 'Guarda los cambios primero' : 'Lo lleva al ángulo abierto'}>Abrir</button>
+                    <button type="button" className="btn sm" onClick={() => onTest(a.key, 0)} disabled={dirty} title={dirty ? 'Guarda los cambios primero' : 'Lo lleva al ángulo cerrado'}>Cerrar</button>
                   </>
                 ) : (
-                  <button type="button" className="btn sm" onClick={() => (apiKey ? onTest(a.key, 5) : onNeedKey())} disabled={dirty} title={dirty ? 'Guarda los cambios primero' : 'Lo enciende 5 segundos'}>Probar 5 s</button>
+                  <button type="button" className="btn sm" onClick={() => onTest(a.key, 5)} disabled={dirty} title={dirty ? 'Guarda los cambios primero' : 'Lo enciende 5 segundos'}>Probar 5 s</button>
                 )}
                 <button type="button" className="icon-btn danger" onClick={() => patch({ actuators: cfg.actuators.filter((_, k) => k !== i) })} aria-label={`Quitar ${a.label}`} title="Quitar"><Icon name="trash" size={16} /></button>
               </>

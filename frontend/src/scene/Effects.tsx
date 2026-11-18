@@ -27,7 +27,7 @@ export function Lights() {
     if (hemi.current) hemi.current.intensity = quality === 'low' ? 0.75 + 0.35 * d : 0.22 + 0.2 * d
     const sp = spot.current
     if (sp) {
-      sp.position.set(0, lamp.y - 0.12, 0.1)
+      sp.position.set(0, lamp.y - 0.12, lamp.z)
       sp.intensity = 20 * lamp.on
     }
   })

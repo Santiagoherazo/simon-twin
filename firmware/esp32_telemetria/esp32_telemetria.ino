@@ -16,6 +16,7 @@
 #define USE_DS18B20    // librerías «OneWire» y «DallasTemperature»
 #define USE_SERVO      // librería «ESP32Servo»
 #define USE_OLED       // librería «U8g2» (olikraus)
+#define USE_NEOPIXEL   // librería «Adafruit NeoPixel» (tira WS2812)
 #include <Wire.h>
 #ifdef USE_DHT
 #include <DHT.h>
@@ -30,8 +31,11 @@
 #ifdef USE_OLED
 #include <U8g2lib.h>
 #endif
+#ifdef USE_NEOPIXEL
+#include <Adafruit_NeoPixel.h>
+#endif
 
-#define FW_VERSION "2.2"
+#define FW_VERSION "2.3"
 
 // === CONFIGURACIÓN WIFI ===
 const char* ssid     = "vivo Y33s";
@@ -41,10 +45,11 @@ const char* password = "12345678";
 const char* device_id       = "esp32-01";
 const char* mqtt_user       = "esp32-01";                 // = device_id (lo exige el ACL del broker)
 const char* mqtt_password   = "Qgr_KMAM7VWyG3Q7PBvl3MuU"; // = MQTT_ESP32_PASSWORD del broker (solo pruebas)
+const char* topic_mood      = "simon/esp32-01/mood";    // {"mood":"happy|worried|sad|sleep"} retenido: lo publica el backend
 const char* topic_telemetry = "simon/esp32-01/telemetry";
 const char* topic_cmd       = "simon/esp32-01/cmd/#";   // cmd/<actuador> con {"seconds":N}
 const char* topic_status    = "simon/esp32-01/status";
-const char* config_url      = "https://simon.zeusr2.duckdns.org/mqtt-config";
+const char* config_url      = "https://simon.zeusr2.duckdns.org/api/mqtt-config";
 
 // === MODO LOCAL / SIN NUBE ===
 const char* CLOUD_BASE = "https://simon.zeusr2.duckdns.org";  // la página local comprueba CLOUD_BASE/health y ofrece volver
@@ -159,19 +164,23 @@ bool fetchConfig() {
 const int MAXS = 24, MAXA = 8, HN = 240;
 const int PAYLOAD_MAX = 360;                  // bytes del JSON de telemetría (cabe en una posición de la cola)
 enum Drv : uint8_t { D_ANALOG, D_DHT_T, D_DHT_H, D_DS18B20, D_HCSR04, D_SIM };
-enum ActDrv : uint8_t { A_RELAY, A_SERVO };
+enum ActDrv : uint8_t { A_RELAY, A_SERVO, A_STRIP };
+const int STRIP_N = 8;                         // LEDs de la tira WS2812
 
 struct SensorCfg { char key[33]; char label[41]; char unit[13]; uint8_t drv; int16_t pin; int16_t param; float scale, offset, simMin, simMax; };
 struct ActCfg {
   char key[33]; char label[41]; uint8_t drv; bool activeHigh; int16_t pin; int16_t angOn, angOff; uint32_t maxS; char autoVar[33];
   bool hasBelow, hasAbove, hasOff; float onBelow, onAbove, offAt; uint16_t autoS; uint32_t cooldownS;
 };
-struct ActState { bool on; bool autoRun; bool hold; unsigned long until; unsigned long endedAt; };   // hold: el servo se queda en su posición hasta que lo cierren
+struct ActState { bool on; bool autoRun; bool hold; unsigned long until; unsigned long endedAt; uint32_t rgb; uint8_t br; };   // rgb/br: color y brillo (%) de la tira; 0 = por defecto   // hold: el servo se queda en su posición hasta que lo cierren
 
 SensorCfg sens[MAXS]; int nSens = 0;
 ActCfg acts[MAXA]; ActState actSt[MAXA]; int nActs = 0;
 volatile int  actReq[MAXA];
 volatile bool actStopReq[MAXA];
+volatile uint32_t actColorReq[MAXA];     // (1<<24)|rgb cuando hay un color pendiente de aplicar
+volatile uint8_t  actBrReq[MAXA];        // brillo+1 cuando hay un brillo pendiente
+volatile uint8_t  moodNow = 0;           // ánimo de la planta para los ojos: 0 dormida (sin datos), 1 feliz, 2 preocupada, 3 triste
 int cfgVersion = 0;
 unsigned long reportMs = 10000;
 float curVal[MAXS];
@@ -182,6 +191,9 @@ struct DispCfg { bool enabled; uint8_t addr; uint8_t rotateS; uint8_t nShow; cha
 DispCfg disp = { false, 0x3C, 4, 0, {} };
 #ifdef USE_SERVO
 Servo servos[MAXA];
+#endif
+#ifdef USE_NEOPIXEL
+Adafruit_NeoPixel* strip = nullptr; int stripPin = -1;
 #endif
 
 // Configuración de fábrica (si no hay una guardada ni red para descargarla): el hardware confirmado, con los pines del montaje.
@@ -198,7 +210,8 @@ const char DEFAULT_CFG[] PROGMEM = R"CFG({"version":0,"report_interval_s":10,"se
 "actuators":[
 {"key":"pump","label":"Mini bomba","driver":"relay","pin":26,"max_seconds":120},
 {"key":"light","label":"Luz externa","driver":"relay","pin":27,"max_seconds":86400},
-{"key":"servo","label":"Luz indirecta","driver":"servo","pin":19,"angle_on":90,"angle_off":0,"max_seconds":30}],
+{"key":"servo","label":"Luz indirecta","driver":"servo","pin":19,"angle_on":90,"angle_off":0,"max_seconds":30},
+{"key":"strip","label":"Tira LED RGB","driver":"ws2812","pin":25,"max_seconds":86400}],
 "display":{"enabled":true,"address":60,"rotate_s":4,"show":["air_t","air_rh","vwc_raw","soil_t","tank_cm","pump"]}})CFG";
 
 int drvFromName(const char* n) {
@@ -211,8 +224,22 @@ int drvFromName(const char* n) {
   return -1;
 }
 
+// Tira WS2812: pinta los 8 LED con el color y el brillo vigentes (o los apaga).
+void stripRender(int i) {
+#ifdef USE_NEOPIXEL
+  if (!strip) return;
+  uint32_t c = actSt[i].rgb ? actSt[i].rgb : 0xFFE0B0;           // por defecto: blanco cálido
+  uint32_t br = actSt[i].br ? actSt[i].br : 60;                  // por defecto: 60 %
+  if (!actSt[i].on) c = 0;
+  uint8_t r = ((c >> 16) & 0xFF) * br / 100, g = ((c >> 8) & 0xFF) * br / 100, b = (c & 0xFF) * br / 100;
+  for (int k = 0; k < STRIP_N; k++) strip->setPixelColor(k, strip->Color(r, g, b));
+  strip->show();
+#endif
+}
+
 void actWrite(int i, bool on) {
   actSt[i].on = on;
+  if (acts[i].drv == A_STRIP) { stripRender(i); Serial.printf("[ACT] %s %s\n", acts[i].key, on ? "ON" : "OFF"); return; }
 #ifdef USE_SERVO
   if (acts[i].drv == A_SERVO) { if (servos[i].attached()) servos[i].write(on ? acts[i].angOn : acts[i].angOff); }
   else
@@ -262,10 +289,13 @@ int applyConfig(const String& json) {
     strlcpy(c.key, a["key"] | "", sizeof(c.key));
     strlcpy(c.label, a["label"] | "", sizeof(c.label));
     c.pin = a["pin"] | -1; c.activeHigh = a["active_high"] | true; c.maxS = a["max_seconds"] | 120UL;
-    c.drv = !strcmp(a["driver"] | "relay", "servo") ? A_SERVO : A_RELAY;
+    c.drv = !strcmp(a["driver"] | "relay", "servo") ? A_SERVO : (!strcmp(a["driver"] | "relay", "ws2812") ? A_STRIP : A_RELAY);
     c.angOn = a["angle_on"] | 90; c.angOff = a["angle_off"] | 0;
     c.angOn = constrain(c.angOn, 0, 180);
     c.angOff = constrain(c.angOff, 0, 180);
+#ifndef USE_NEOPIXEL
+    if (c.drv == A_STRIP) { Serial.printf("[CFG] %s necesita USE_NEOPIXEL: omitido\n", c.key); c.key[0] = 0; }
+#endif
 #ifndef USE_SERVO
     if (c.drv == A_SERVO) { Serial.printf("[CFG] %s necesita USE_SERVO: omitido\n", c.key); c.key[0] = 0; }
 #endif
@@ -300,12 +330,18 @@ int applyConfig(const String& json) {
   memcpy(sens, ns, sizeof(SensorCfg) * cs); nSens = cs;
   memcpy(acts, na, sizeof(ActCfg) * ca); nActs = ca;
   for (int i = 0; i < nActs; i++) {
-    memset(&actSt[i], 0, sizeof(ActState)); actReq[i] = 0; actStopReq[i] = false;
+    memset(&actSt[i], 0, sizeof(ActState)); actReq[i] = 0; actStopReq[i] = false; actColorReq[i] = 0; actBrReq[i] = 0;
     for (int k = 0; k < oldN; k++) if (!strcmp(oldA[k].key, acts[i].key) && oldA[k].pin == acts[i].pin) actSt[i] = oldSt[k];   // conserva el estado
     if (acts[i].drv == A_SERVO) {
 #ifdef USE_SERVO
       if (servos[i].attached()) servos[i].detach();
       if (acts[i].pin >= 0) { servos[i].setPeriodHertz(50); servos[i].attach(acts[i].pin, 500, 2400); servos[i].write(actSt[i].on ? acts[i].angOn : acts[i].angOff); }
+#endif
+    } else if (acts[i].drv == A_STRIP) {
+#ifdef USE_NEOPIXEL
+      if (strip && stripPin != acts[i].pin) { strip->clear(); strip->show(); delete strip; strip = nullptr; }
+      if (!strip && acts[i].pin >= 0) { strip = new Adafruit_NeoPixel(STRIP_N, acts[i].pin, NEO_GRB + NEO_KHZ800); strip->begin(); stripPin = acts[i].pin; }
+      stripRender(i);
 #endif
     } else {
 #ifdef USE_SERVO
@@ -397,11 +433,39 @@ void utf8Trim(char* t) {                       // quita un carácter UTF-8 corta
 }
 #endif
 
+#ifdef USE_OLED
+// Ojos de la planta (128x32): feliz = ojos sonrientes, preocupada = cejas caídas, triste = cejas muy caídas y lágrima, dormida = párpados cerrados.
+void drawEyes(uint8_t mood, unsigned long ms) {
+  const int W = 30, H = 22, Y = 5, XL = 22, XR = 76;
+  bool blink = (mood == 1 || mood == 2) && (ms % 4200) < 160;          // parpadeo cada ~4 s
+  for (int e = 0; e < 2; e++) {
+    int x = e ? XR : XL;
+    if (mood == 0 || blink) { oled.drawBox(x, Y + H / 2 - 1, W, 3); continue; }
+    oled.setDrawColor(1);
+    oled.drawRBox(x, Y, W, H, 9);
+    oled.setDrawColor(0);
+    if (mood == 1) oled.drawDisc(x + W / 2, Y + H + 7, W / 2 + 2);     // párpado inferior curvo → ojos felices
+    else {                                                              // cejas inclinadas hacia afuera
+      int d = (mood == 2) ? 9 : 15;
+      if (e == 0) oled.drawTriangle(x - 1, Y - 1, x + W + 1, Y - 1, x - 1, Y + d);
+      else oled.drawTriangle(x - 1, Y - 1, x + W + 1, Y - 1, x + W + 1, Y + d);
+    }
+    oled.setDrawColor(1);
+    if (mood == 3) {                                                    // lágrima que cae
+      int ty = Y + H + 1 + (int)((ms / 120) % 6);
+      int tx = e ? x + W - 3 : x + 3;
+      oled.drawDisc(tx, ty > 29 ? 29 : ty, 2);
+    }
+  }
+  if (mood == 0) { oled.setFont(u8g2_font_6x10_tf); oled.drawStr(108, 10, "z"); }
+}
+#endif
+
 void oledTick() {
 #ifdef USE_OLED
   static unsigned long last = 0, pageAt = 0;
   static bool started = false; static uint8_t startedAddr = 0; static int page = 0;
-  if (millis() - last < 1000) return;
+  if (millis() - last < (page == 0 ? 120UL : 1000UL)) return;      // los ojos se redibujan rápido (parpadeo, lágrima)
   last = millis();
   static OledItem items[32]; int n = 0;
   bool on; uint8_t addr, rot;
@@ -435,14 +499,16 @@ void oledTick() {
     oled.begin(); oled.setBusClock(400000); oled.enableUTF8Print();
     started = true; startedAddr = addr;
   }
-  int pages = n ? (n + 2) / 3 : 1;
-  if (millis() - pageAt >= (unsigned long)rot * 1000UL) { page = (page + 1) % pages; pageAt = millis(); }
+  int pages = 1 + (n ? (n + 2) / 3 : 1);                       // página 0 = ojos; luego las lecturas de 3 en 3
+  unsigned long hold = (unsigned long)rot * 1000UL * (page == 0 ? 2 : 1);   // la cara se queda el doble
+  if (millis() - pageAt >= hold) { page = (page + 1) % pages; pageAt = millis(); }
   if (page >= pages) page = 0;
   oled.clearBuffer();
+  if (page == 0) { oled.setDrawColor(1); drawEyes(moodNow, millis()); oled.sendBuffer(); return; }
   oled.setFont(u8g2_font_6x10_tf);
   if (n == 0) oled.drawUTF8(0, 20, "Sin datos");
   for (int r = 0; r < 3; r++) {
-    int idx = page * 3 + r;
+    int idx = (page - 1) * 3 + r;
     if (idx >= n) break;
     int y = 9 + r * 11;                         // 9, 20, 31: deja un margen abajo
     oled.drawUTF8(0, y, items[idx].name);
@@ -472,6 +538,10 @@ void buildPayload(String& out, uint32_t ts) {
   for (int i = 0; i < nActs; i++) {
     if ((int)out.length() > PAYLOAD_MAX - 30) break;
     out += ",\"" + String(acts[i].key) + "_on\":" + (actSt[i].on ? "true" : "false");
+    if (acts[i].drv == A_STRIP) {            // color y brillo vigentes (24 bits como entero) para que la interfaz los muestre
+      out += ",\"" + String(acts[i].key) + "_rgb\":" + String((unsigned long)(actSt[i].rgb ? actSt[i].rgb : 0xFFE0B0));
+      out += ",\"" + String(acts[i].key) + "_br\":" + String((int)(actSt[i].br ? actSt[i].br : 60));
+    }
   }
   out += "}";
 }
@@ -497,6 +567,11 @@ void histPushNow(uint32_t ts, uint32_t up) {
 void actTick(unsigned long now) {
   for (int i = 0; i < nActs; i++) {
     ActState& s = actSt[i];
+    if (actColorReq[i] || actBrReq[i]) {            // color/brillo nuevos de la tira (si está encendida se ve al instante)
+      if (actColorReq[i]) { s.rgb = actColorReq[i] & 0xFFFFFF; actColorReq[i] = 0; }
+      if (actBrReq[i]) { s.br = actBrReq[i] - 1; actBrReq[i] = 0; }
+      if (acts[i].drv == A_STRIP && s.on) stripRender(i);
+    }
     if (actStopReq[i]) { actStopReq[i] = false; actReq[i] = 0; if (s.on) { actWrite(i, false); s.endedAt = now; } }
     int r = actReq[i];
     if (r > 0) {
@@ -534,17 +609,31 @@ void actAuto(unsigned long now) {
 // === CALLBACK MQTT === (comando de actuador: simon/esp32-01/cmd/<clave> con {"seconds":30}; {"seconds":0} lo apaga)
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
   Serial.printf("[MQTT] RX [%s] %.*s\n", topic, (int)length, (const char*)payload);
+  StaticJsonDocument<192> doc;
+  if (strstr(topic, "/mood")) {                     // ánimo de la planta → ojos de la pantalla
+    if (deserializeJson(doc, payload, length)) return;
+    const char* m = doc["mood"] | "";
+    moodNow = !strcmp(m, "happy") ? 1 : !strcmp(m, "worried") ? 2 : !strcmp(m, "sad") ? 3 : 0;
+    return;
+  }
   const char* p = strstr(topic, "/cmd/");
   if (!p) return;
-  StaticJsonDocument<192> doc;
   if (deserializeJson(doc, payload, length)) return;
-  if (!doc.containsKey("seconds")) return;
+  bool hasColor = doc.containsKey("color") || doc.containsKey("brightness");
+  if (!doc.containsKey("seconds") && !hasColor) return;
   int sec = doc["seconds"] | -1;
-  if (sec < 0) return;
+  if (sec < 0 && !hasColor) return;
   xSemaphoreTake(cfgLock, portMAX_DELAY);
   int i = findAct(p + 5);
   xSemaphoreGive(cfgLock);
   if (i < 0) return;
+  if (hasColor) {                                  // solo tira WS2812: {"color":"#ff8800","brightness":60}
+    const char* col = doc["color"] | "";
+    if (col[0] == '#' && strlen(col) == 7) actColorReq[i] = (1UL << 24) | (uint32_t)strtoul(col + 1, nullptr, 16);
+    int b = doc["brightness"] | -1;
+    if (b >= 1 && b <= 100) actBrReq[i] = b + 1;
+    if (sec < 0) return;
+  }
   if (sec == 0) actStopReq[i] = true;      // seconds = 0: apagar ahora
   else actReq[i] = sec;
 }
@@ -846,6 +935,7 @@ void taskMqtt(void *pvParameters) {
         if (client.connect(cid.c_str(), mqtt_user, mqtt_password, willT, 1, true, willM)) {
           Serial.printf("[MQTT] CONECTADO (cola: %d lecturas)\n", qCount);
           client.subscribe(topic_cmd);
+          client.subscribe(topic_mood);
           client.publish(topic_status, "online", true);
           publishInfo();
           mqttUp = true;
@@ -985,7 +1075,9 @@ void handleState() {
   s += "],\"actuators\":[";
   for (int i = 0; i < nActs; i++) {
     if (i) s += ",";
-    s += "{\"key\":\"" + jsonEsc(acts[i].key) + "\",\"label\":\"" + jsonEsc(acts[i].label) + "\",\"on\":" + (actSt[i].on ? "true" : "false") + "}";
+    s += "{\"key\":\"" + jsonEsc(acts[i].key) + "\",\"label\":\"" + jsonEsc(acts[i].label) + "\",\"on\":" + (actSt[i].on ? "true" : "false");
+    if (acts[i].drv == A_STRIP) s += String(",\"color\":\"#") + String((unsigned long)(actSt[i].rgb ? actSt[i].rgb : 0xFFE0B0) | 0x1000000UL, HEX).substring(1) + "\",\"brightness\":" + (int)(actSt[i].br ? actSt[i].br : 60);
+    s += "}";
   }
   xSemaphoreGive(cfgLock);
   s += "]}";
@@ -1029,7 +1121,9 @@ void handleAct() {
   int i = findAct(key.c_str());
   xSemaphoreGive(cfgLock);
   if (i < 0) { cors(); server.send(404, "application/json", "{\"ok\":false,\"error\":\"actuador desconocido\"}"); return; }
-  if (sec > 0) actReq[i] = sec; else actStopReq[i] = true;
+  if (server.hasArg("color")) { String c = server.arg("color"); if (c.length() == 6) actColorReq[i] = (1UL << 24) | (uint32_t)strtoul(c.c_str(), nullptr, 16); }   // color=ff8800
+  if (server.hasArg("b")) { int b = server.arg("b").toInt(); if (b >= 1 && b <= 100) actBrReq[i] = b + 1; }
+  if (sec > 0) actReq[i] = sec; else if (!server.hasArg("color") && !server.hasArg("b")) actStopReq[i] = true;
   cors(); server.send(202, "application/json", String("{\"ok\":true,\"seconds\":") + sec + "}");
 }
 

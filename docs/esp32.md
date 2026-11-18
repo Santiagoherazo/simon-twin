@@ -23,7 +23,7 @@ calibración del dispositivo (`vwc_raw_dry` = seco al aire, `vwc_raw_wet` = en a
 `ts` es epoch en segundos (sincroniza con NTP). Si lo omites, el backend usa su propia hora.
 Se rechaza un `ts` más de 300 s en el futuro; las fechas pasadas solo se aceptan de dispositivos `sim-*` o por `/import`.
 
-## Pines del montaje (firmware 2.2)
+## Pines del montaje
 
 | Pieza | ESP32 | Detalle |
 |---|---|---|
@@ -35,7 +35,10 @@ Se rechaza un `ts` más de 300 s en el futuro; las fechas pasadas solo se acepta
 | Bomba (relé) | GPIO 26 | tope 120 s |
 | Luz externa (relé) | GPIO 27 | tope 24 h |
 | Servo | GPIO 19 | 5 V externos, GND común |
+| Tira LED RGB WS2812 (8 LED) | GPIO 25 (DIN) | 5 V, GND común, 330 Ω en DIN |
 | OLED SSD1306 128×32 | SDA 21 · SCL 22 | dirección 0x3C |
+
+![Esquema de conexiones](esquema-conexiones.png)
 
 El sketch y el backend comparten este mapa: `DEFAULT_CFG` en `esp32_telemetria.ino` y `config_hardware_confirmado()` en
 `backend/app/devcfg.py`. Solo se usan ADC1 (32–39): el ADC2 no lee con el WiFi encendido.
@@ -97,20 +100,29 @@ void loop() {
 ## Opción B: HTTP
 
 ```bash
-# 1) generar la clave del dispositivo (una vez; se muestra una sola vez)
-curl -X POST http://HOST:8000/devices/esp32-01/ingest-key -H "X-API-Key: $API_KEY"
-# 2) enviar lecturas
+# enviar lecturas (sin clave)
 curl -X POST http://HOST:8000/ingest/esp32-01 \
-  -H "Content-Type: application/json" -H "X-Device-Key: <clave>" \
+  -H "Content-Type: application/json" \
   -d '{"vwc_raw":2100,"air_t":27.1,"air_rh":62,"lux":18000}'
 ```
 
 ## Importar histórico (CSV de la SD / PLX-DAQ)
 
 Convierte las filas a JSON con `ts` en cada una y envía `POST /devices/{id}/import` con
-`{"rows":[...]}` (máx. 5000 por llamada, cabecera `X-API-Key`).
+`{"rows":[...]}` (máx. 5000 por llamada).
 
 ## Calibrar el sensor de humedad
 
 Mide `vwc_raw` con el sensor en el aire (seco) y sumergido en agua; guarda ambos con
 `PUT /devices/esp32-01 {"vwc_raw_dry":3100,"vwc_raw_wet":1300}`. Sin calibrar, los porcentajes son solo orientativos.
+
+## Escena 3D = la maqueta del CAD
+La escena usa `frontend/public/maqueta.json` (generado desde `cad/exportar_visor.py`, copia de `cad/visor/partes.json`).
+Cada pieza se puede tocar (tarjeta con descripción, lecturas y botón «Controlar»). El agua del depósito sube y baja con
+`tank_pct` (o `tank_cm` del HC-SR04), las estacas LDR brillan con `ldr_nw/ne/sw/se`, la tapa de la lámpara la abre el actuador
+`servo` con el mecanismo biela-manivela, y la pantalla OLED muestra las lecturas. Si regeneras el CAD, vuelve a copiar `partes.json`.
+
+## Tira LED RGB y ojos
+- Tira WS2812 de 8 LED en el GPIO 25: actuador `strip` (driver `ws2812`). Desde el dock de la interfaz eliges color (paleta o selector) y brillo; la maqueta 3D muestra la tira en el frente de la lámpara con ese color. En equipos ya creados, agrégala en Admin → Actuadores → «Tira LED RGB (WS2812)».
+- La pantalla OLED muestra unos ojos según el ánimo de la planta (`state.mood`, también publicado en `simon/<id>/mood`).
+- En el modelo CAD todavía no hay soporte impreso para la tira: en el 3D es un componente de referencia pegado al frente de la lámpara.

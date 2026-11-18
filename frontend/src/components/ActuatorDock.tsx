@@ -1,15 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
 import { actuate } from '../api'
-import { useApiKey } from '../apikey'
 import { dur, isLatch, kindOf, optionsFor, stateWord, toSeconds, UNITS, VERB, type ActKind, type UnitId } from '../actuators'
 import type { ActuatorState } from '../types'
 import { useActuatorPick } from '../xr'
+import { useApiKey } from '../apikey'
 
 const ICON: Record<ActKind, string> = {
   pump: 'M12 3c3.2 4.2 6 6.9 6 10.2A6 6 0 016 13.2C6 9.9 8.8 7.2 12 3z',
   light: 'M9 18h6M10 21h4M12 3a6 6 0 00-3.6 10.8c.6.5 1 1.2 1 2V16h5.2v-.2c0-.8.4-1.5 1-2A6 6 0 0012 3z',
   servo: 'M4 5h16M4 5v14M7 7l9 3M7 11l9 3M7 15l9 3',
+  strip: 'M3 9h18v6H3zM6 9v6M9 9v6M12 9v6M15 9v6M18 9v6',
 }
+
+const SWATCHES = ['#ffffff', '#ffd9a0', '#ff3b30', '#ff9500', '#ffe600', '#34c759', '#00c7be', '#0a84ff', '#bf5af2', '#ff2d92']
 
 interface Props {
   deviceId: string | null
@@ -26,13 +29,9 @@ interface Props {
  * Tocar uno abre sus duraciones; si está encendido ofrece apagarlo ya. Tocar su modelo 3D hace lo mismo.
  */
 export function ActuatorDock({ deviceId, online, actuators, variant = 'float', exclude = [] }: Props) {
+  const [apiKey] = useApiKey()
   const list = (actuators ?? []).filter((a) => !exclude.includes(a.key))
   const [open, setOpen] = useState<string | null>(null)
-  const [apiKey, setApiKey] = useApiKey()
-  const [showKey, setShowKey] = useState(() => !apiKey)
-  useEffect(() => {
-    if (!apiKey) setShowKey(true)
-  }, [apiKey])
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
   // Orden recién enviada: se muestra ya, sin esperar a la siguiente lectura del equipo (que llega cada ~10 s)
@@ -43,6 +42,8 @@ export function ActuatorDock({ deviceId, online, actuators, variant = 'float', e
   const [customVal, setCustomVal] = useState('')
   const [customUnit, setCustomUnit] = useState<UnitId>('min')
   const [customErr, setCustomErr] = useState<string | null>(null)
+  const [color, setColor] = useState('#ffffff')
+  const [bright, setBright] = useState(60)
   const pick = useActuatorPick()
   const lastPick = useRef(0)
 
@@ -84,13 +85,24 @@ export function ActuatorDock({ deviceId, online, actuators, variant = 'float', e
     return o && o.until > now ? o.on : !!a.on
   }
 
+  /** Cambia solo color/brillo de la tira (sin tocar el tiempo); si está apagada, quedan guardados para cuando se encienda. */
+  const sendStyle = async (a: ActuatorState, c: string, b: number) => {
+    if (!apiKey) { setMsg({ ok: false, text: 'Falta la API key. Abre Configuración y guárdala una vez.' }); return }
+    try {
+      await actuate(deviceId, a.key, null, apiKey, { color: c, brightness: b })
+      setMsg({ ok: true, text: `${a.label}: color enviado` })
+    } catch (e) {
+      setMsg({ ok: false, text: (e as Error).message })
+    }
+  }
+
   const send = async (a: ActuatorState, seconds: number) => {
-    if (!apiKey) return setMsg({ ok: false, text: 'Ingresa la API key para controlar el equipo.' })
+    if (!apiKey) { setMsg({ ok: false, text: 'Falta la API key. Abre Configuración y guárdala una vez.' }); return }
     setBusy(true)
     setMsg(null)
     navigator.vibrate?.(25)
     try {
-      await actuate(deviceId, a.key, seconds, apiKey)
+      await actuate(deviceId, a.key, seconds, apiKey, kindOf(a) === 'strip' && seconds > 0 ? { color, brightness: bright } : {})
       const latch = isLatch(kindOf(a))
       // temporizado: activo mientras dure; postigo/apagado: se muestra el cambio ~15 s hasta que llegue la lectura real
       setOverride((m) => ({ ...m, [a.key]: { on: seconds > 0, until: Date.now() + (latch || seconds === 0 ? 15000 : seconds * 1000) } }))
@@ -123,7 +135,11 @@ export function ActuatorDock({ deviceId, online, actuators, variant = 'float', e
                   setCustom(false)
                   setCustomVal('')
                   setCustomErr(null)
-                  setCustomUnit(kind === 'light' ? 'min' : 's')
+                  setCustomUnit(kind === 'light' || kind === 'strip' ? 'min' : 's')
+                  if (kind === 'strip') {
+                    if (a.color) setColor(a.color)
+                    if (a.brightness) setBright(a.brightness)
+                  }
                 }}
                 aria-expanded={sel}
                 aria-label={`${a.label}: ${stateWord(kind, on)}. Abrir control`}
@@ -142,41 +158,67 @@ export function ActuatorDock({ deviceId, online, actuators, variant = 'float', e
                   <div className="act-pop" role="dialog" aria-label={`Control de ${a.label}`}>
                     <b>{a.label}</b>
                     {!online && <small className="act-warn">El dispositivo está sin conexión: no se puede enviar.</small>}
-                    {showKey ? (
-                      <label className="act-key-in">
-                        API key
-                        <input
-                          type="password"
-                          autoComplete="off"
-                          value={apiKey}
-                          onChange={(e) => setApiKey(e.target.value)}
-                          onBlur={() => { if (apiKey) setShowKey(false) }}
-                          placeholder="La del servidor"
-                        />
-                      </label>
-                    ) : (
-                      <small className="act-cap">
-                        Usando la API key guardada.{' '}
-                        <button type="button" onClick={() => setShowKey(true)}>Cambiar</button>{' '}
-                        <button type="button" onClick={() => { setApiKey(''); setShowKey(true) }}>Olvidar</button>
-                      </small>
+                    {kind === 'strip' && (
+                      <div className="act-color">
+                        <small className="act-cap">Color</small>
+                        <div className="act-swatches">
+                          {SWATCHES.map((c) => (
+                            <button
+                              key={c}
+                              type="button"
+                              className={'act-sw' + (c === color ? ' sel' : '')}
+                              style={{ background: c }}
+                              aria-label={`Color ${c}`}
+                              disabled={!online}
+                              onClick={() => {
+                                setColor(c)
+                                void sendStyle(a, c, bright)
+                              }}
+                            />
+                          ))}
+                          <label className="act-sw custom" title="Otro color">
+                            <input
+                              type="color"
+                              value={color}
+                              aria-label="Elegir otro color"
+                              disabled={!online}
+                              onChange={(e) => setColor(e.target.value)}
+                              onBlur={(e) => void sendStyle(a, e.target.value, bright)}
+                            />
+                          </label>
+                        </div>
+                        <label className="act-bright">
+                          <small className="act-cap">Brillo {bright} %</small>
+                          <input
+                            type="range"
+                            min={5}
+                            max={100}
+                            step={5}
+                            value={bright}
+                            disabled={!online}
+                            onChange={(e) => setBright(Number(e.target.value))}
+                            onPointerUp={() => void sendStyle(a, color, bright)}
+                            onKeyUp={() => void sendStyle(a, color, bright)}
+                          />
+                        </label>
+                      </div>
                     )}
                     {isLatch(kind) ? (
                       <div className="act-opts two">
-                        <button type="button" onClick={() => void send(a, 1)} disabled={busy || !online || !apiKey || on}>Abrir</button>
-                        <button type="button" onClick={() => void send(a, 0)} disabled={busy || !online || !apiKey || !on}>Cerrar</button>
+                        <button type="button" onClick={() => void send(a, 1)} disabled={busy || !online || on}>Abrir</button>
+                        <button type="button" onClick={() => void send(a, 0)} disabled={busy || !online || !on}>Cerrar</button>
                       </div>
                     ) : (
                       <>
                         {on && (
-                          <button type="button" className="act-stop" onClick={() => void send(a, 0)} disabled={busy || !online || !apiKey}>
+                          <button type="button" className="act-stop" onClick={() => void send(a, 0)} disabled={busy || !online}>
                             Apagar ahora
                           </button>
                         )}
                         <small className="act-cap">{VERB[kind]} durante</small>
                         <div className="act-opts">
                           {optionsFor(a, true).map((s) => (
-                            <button key={s} type="button" onClick={() => void send(a, s)} disabled={busy || !online || !apiKey}>
+                            <button key={s} type="button" onClick={() => void send(a, s)} disabled={busy || !online}>
                               {dur(s)}
                             </button>
                           ))}
@@ -218,7 +260,7 @@ export function ActuatorDock({ deviceId, online, actuators, variant = 'float', e
                                 ))}
                               </select>
                             </div>
-                            <button type="submit" className="act-go" disabled={busy || !online || !apiKey}>
+                            <button type="submit" className="act-go" disabled={busy || !online}>
                               {VERB[kind]} {customVal.trim() && toSeconds(customVal, customUnit) ? dur(toSeconds(customVal, customUnit)!) : 'ahora'}
                             </button>
                             <small className={customErr ? 'act-warn' : ''} role={customErr ? 'alert' : undefined}>
@@ -228,7 +270,7 @@ export function ActuatorDock({ deviceId, online, actuators, variant = 'float', e
                         )}
                       </>
                     )}
-                    {kind === 'light' && <small>Se apaga sola al terminar el tiempo.</small>}
+                    {(kind === 'light' || kind === 'strip') && <small>Se apaga sola al terminar el tiempo.</small>}
                     {isLatch(kind) && <small>Se queda en esa posición hasta que lo cambies.</small>}
                   </div>
                 </>

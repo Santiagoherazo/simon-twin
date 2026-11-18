@@ -8,10 +8,10 @@ import { LivePanel } from './LivePanel'
 import { SimPanel, type SimPanelProps } from './SimPanel'
 import type { SimRequest } from '../types'
 import { pump } from '../api'
-import { useApiKey } from '../apikey'
 import { gyro, useXr, xrRequest, setXr, detectAr } from '../xr'
 import { Icon } from './admin/ui'
 import { ActuatorDock } from './ActuatorDock'
+import { useApiKey } from '../apikey'
 
 const PRESETS: { id: string; label: string; req: SimRequest }[] = [
   {
@@ -44,6 +44,7 @@ interface Props {
 type Orient = DeviceOrientationEvent & { requestPermission?: () => Promise<'granted' | 'denied'> }
 
 export function MobileShell({ live, mode, onMode, deviceId, sim, quality, onQuality }: Props) {
+  const [apiKey] = useApiKey()
   const taps = useRef({ n: 0, t: 0 })
   // 5 toques seguidos en el nombre del dispositivo muestran/ocultan el medidor de rendimiento
   const idTap = () => {
@@ -63,8 +64,6 @@ export function MobileShell({ live, mode, onMode, deviceId, sim, quality, onQual
   const [tilt, setTilt] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [key, setKey] = useApiKey()
-  const [askKey, setAskKey] = useState(false)
 
   useEffect(() => {
     void detectAr()
@@ -103,12 +102,12 @@ export function MobileShell({ live, mode, onMode, deviceId, sim, quality, onQual
 
   const water = async () => {
     if (!deviceId) return
-    if (!key) return setAskKey(true)
+    if (!apiKey) { setMsg('Falta la API key. Guárdala una vez en Configuración.'); return }
     setBusy(true)
     setMsg(null)
     navigator.vibrate?.(30)
     try {
-      await pump(deviceId, 10, key)
+      await pump(deviceId, 10, apiKey)
       navigator.vibrate?.([20, 40, 20])
       setMsg('Regando 10 segundos')
     } catch (e) {
@@ -207,21 +206,6 @@ export function MobileShell({ live, mode, onMode, deviceId, sim, quality, onQual
             )}
           </div>
           {mode === 'live' && <ActuatorDock variant="inline" deviceId={deviceId} online={!!s?.online} actuators={s?.actuators} exclude={['pump']} />}
-          {askKey && (
-            <form
-              className="m-key"
-              onSubmit={(e) => {
-                e.preventDefault()
-                setAskKey(false)
-                void water()
-              }}
-            >
-              <input type="password" placeholder="API key de riego" value={key} onChange={(e) => setKey(e.target.value)} autoComplete="off" />
-              <button type="submit" className="btn" disabled={!key}>
-                Guardar y regar
-              </button>
-            </form>
-          )}
           {msg && (
             <p className="m-msg" role="status" aria-live="polite">
               {msg}

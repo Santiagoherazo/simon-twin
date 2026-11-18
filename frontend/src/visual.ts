@@ -1,3 +1,4 @@
+import { moodFromState, type Mood } from './mood'
 import { useSyncExternalStore } from 'react'
 import type { AlertItem, PlantParams, SimResponse, TwinState, Telemetry } from './types'
 
@@ -32,13 +33,17 @@ export interface VisualActuator {
   key: string
   label: string
   on: boolean
-  kind: 'fan' | 'light' | 'heater' | 'humidifier' | 'valve' | 'servo' | 'generic'
+  kind: 'fan' | 'light' | 'heater' | 'humidifier' | 'valve' | 'servo' | 'strip' | 'generic'
+  /** Tira RGB: color #rrggbb y brillo %. */
+  color?: string | null
+  brightness?: number | null
 }
 
 /** Clasifica un actuador por su clave o nombre para elegir su modelo 3D y su efecto en la escena. */
 export function actuatorKind(key: string, label: string): VisualActuator['kind'] {
   const t = `${key} ${label}`.toLowerCase()
   if (/servo/.test(t)) return 'servo'
+  if (/strip|tira|ws2812|neopixel|rgb/.test(t)) return 'strip'
   if (/ventil|fan|extractor|aire_?fors/.test(t)) return 'fan'
   if (/luz|light|l[aá]mpara|lamp|led|grow|foco/.test(t)) return 'light'
   if (/calef|heat|resist|hornill/.test(t)) return 'heater'
@@ -59,6 +64,12 @@ export interface VisualState {
   airT: number | null
   pumpOn: boolean
   tankOk: boolean
+  /** Nivel del depósito 0..100 (HC-SR04); null si el equipo no lo reporta. */
+  tankPct: number | null
+  /** Ánimo de la planta (ojos de la pantalla OLED). */
+  mood: Mood
+  /** Las 4 LDR de las esquinas en % (NO, NE, SO, SE); null si no hay. */
+  ldr: { nw: number; ne: number; sw: number; se: number } | null
   rainMm: number
   alerts: { probe: boolean; tank: boolean; pump: boolean }
   airRh: number | null
@@ -81,6 +92,9 @@ export const EMPTY_VISUAL: VisualState = {
   airT: null,
   pumpOn: false,
   tankOk: true,
+  tankPct: null,
+  mood: 'sleep',
+  ldr: null,
   rainMm: 0,
   alerts: { probe: false, tank: false, pump: false },
   airRh: null,
@@ -201,6 +215,9 @@ export function visualFromLive(s: TwinState | null, tel: (Telemetry & { _rx: num
     airT: fresh?.air_t ?? r.air_t ?? null,
     pumpOn: !!(fresh?.pump_on ?? r.pump_on),
     tankOk: (fresh?.tank_ok ?? r.tank_ok) !== false,
+    tankPct: liveTankPct(s),
+    mood: s.mood?.mood ?? moodFromState(s),
+    ldr: liveLdr(s),
     rainMm: 0,
     alerts: alertTargets(s.alerts),
     airRh: r.air_rh ?? null,
@@ -216,6 +233,24 @@ const BUILTIN: [keyof NonNullable<TwinState['readings']>, string, string][] = [
   ['air_rh', 'Humedad del aire', '%'], ['lux', 'Luz', 'lx'], ['ph', 'pH', ''], ['ec', 'EC', 'µS/cm'],
   ['n', 'Nitrógeno', ''], ['p', 'Fósforo', ''], ['k', 'Potasio', ''],
 ]
+
+const customNum = (s: TwinState, key: string): number | null => {
+  const c = (s.custom ?? []).find((x) => x.key === key)
+  return c && typeof c.value === 'number' && Number.isFinite(c.value) ? c.value : null
+}
+
+/** Nivel del depósito: indicador tank_pct, o se calcula desde la distancia del HC-SR04 (vacío a 15 cm, lleno a 3 cm). */
+function liveTankPct(s: TwinState): number | null {
+  const p = customNum(s, 'tank_pct')
+  if (p !== null) return Math.max(0, Math.min(100, p))
+  const cm = customNum(s, 'tank_cm')
+  return cm === null ? null : Math.max(0, Math.min(100, ((15 - cm) / 12) * 100))
+}
+
+function liveLdr(s: TwinState): VisualState['ldr'] {
+  const [nw, ne, sw, se] = ['ldr_nw', 'ldr_ne', 'ldr_sw', 'ldr_se'].map((k) => customNum(s, k))
+  return nw === null || ne === null || sw === null || se === null ? null : { nw, ne, sw, se }
+}
 
 function liveSensors(s: TwinState): VisualSensor[] {
   const r = s.readings ?? {}
@@ -234,7 +269,7 @@ function liveSensors(s: TwinState): VisualSensor[] {
 function liveActs(s: TwinState): VisualActuator[] {
   return (s.actuators ?? [])
     .filter((a) => !/^pump$|bomba/i.test(`${a.key}`) && !/bomba/i.test(a.label))
-    .map((a) => ({ key: a.key, label: a.label, on: !!a.on, kind: actuatorKind(a.key, a.label) }))
+    .map((a) => ({ key: a.key, label: a.label, on: !!a.on, kind: actuatorKind(a.key, a.label), color: a.color ?? null, brightness: a.brightness ?? null }))
 }
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t
@@ -276,6 +311,9 @@ export function visualFromSim(sim: SimResponse, pos: number): VisualState {
     airT: lerp(a.air_t, b.air_t, f),
     pumpOn: irrigating,
     tankOk: true,
+    tankPct: null,
+    mood: 'happy',
+    ldr: null,
     rainMm: near.rain_mm,
     alerts: { probe: a.ks < 0.5, tank: false, pump: false },
     airRh: null,

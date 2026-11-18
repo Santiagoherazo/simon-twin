@@ -23,5 +23,6 @@ describe('tiempo libre', () => {
     expect(kindOf({ key: 'pump', label: 'Mini bomba' })).toBe('pump')
     expect(kindOf({ key: 'light', label: 'Luz externa' })).toBe('light')
     expect(kindOf({ key: 'servo', label: 'Luz indirecta' })).toBe('servo')
+    expect(kindOf({ key: 'strip', label: 'Tira LED RGB' })).toBe('strip')
   })
 })

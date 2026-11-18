@@ -12,6 +12,10 @@ using std::isnan;
 #define constrain(x,a,b) ((x)<(a)?(a):((x)>(b)?(b):(x)))
 #define USE_SERVO
 #define USE_OLED
+#define USE_NEOPIXEL
+#define NEO_GRB 0
+#define NEO_KHZ800 0
+struct Adafruit_NeoPixel { int n, pin; unsigned last = 0; Adafruit_NeoPixel(int n_, int p, int) : n(n_), pin(p) {} void begin() {} void clear() {} void show() { printf("  tira pin %d: rgb=%06X\n", pin, last); } unsigned Color(int r, int g, int b) { return (r << 16) | (g << 8) | b; } void setPixelColor(int, unsigned c) { last = c; } };
 typedef int SemaphoreHandle_t;
 inline void xSemaphoreTake(SemaphoreHandle_t, int) {}
 inline void xSemaphoreGive(SemaphoreHandle_t) {}
@@ -39,6 +43,7 @@ struct U8G2_SSD1306_128X32_UNIVISION_F_HW_I2C {
   void clearDisplay() { puts("  oled clear"); } void clearBuffer() { puts("  --- oled frame ---"); } void setFont(int) {}
   void drawUTF8(int x, int y, const char* t) { printf("  [x=%3d y=%2d] %s\n", x, y, t); }
   int getUTF8Width(const char* t) { return 6 * strlen(t); } void sendBuffer() {}
+  void setDrawColor(int) {} void drawRBox(int,int,int,int,int) {} void drawBox(int,int,int,int) {} void drawDisc(int,int,int) {} void drawTriangle(int,int,int,int,int,int) {} void drawStr(int,int,const char*) {}
 };
 #define U8G2_R0 0
 #define U8X8_PIN_NONE 0
@@ -50,7 +55,7 @@ int main() {
   puts("== config de fábrica (sin DHT/DS18B20 compilados: se omiten con aviso) ==");
   CHECK(applyConfig(String(DEFAULT_CFG)) == 2);
   printf("sensores=%d actuadores=%d\n", nSens, nActs);
-  CHECK(nSens == 6 && nActs == 3);                       // 9 sensores - 2 DHT omitidos... (DHT t y h) y DS18B20 => 6 o 7; se afirma abajo
+  CHECK(nSens == 6 && nActs == 4);                       // 9 sensores - 2 DHT omitidos... (DHT t y h) y DS18B20 => 6 o 7; se afirma abajo
   CHECK(!strcmp(acts[2].key, "servo") && acts[2].drv == A_SERVO && acts[2].angOn == 90 && acts[2].angOff == 0);
   CHECK(acts[0].drv == A_RELAY && acts[1].maxS == 86400);
   CHECK(disp.enabled && disp.addr == 60 && disp.rotateS == 4 && disp.nShow == 6 && !strcmp(disp.show[5], "pump"));
@@ -59,10 +64,10 @@ int main() {
 
   puts("== ultrasonido: mediana descarta el eco suelto ==");
   pulses = {600, 5800, 610}; pidx = 0;                      // 600us≈10.3cm, 5800us≈99cm (ruido), 610us≈10.4cm
-  float d = readHcsr04(18, 23); printf("distancia=%.2f cm\n", d);
+  float d = readHcsr04(23, 19); printf("distancia=%.2f cm\n", d);
   CHECK(fabsf(d - 10.46f) < 0.2f);
-  pulses = {0, 0, 0}; pidx = 0; CHECK(isnan(readHcsr04(18, 23)));          // sin eco = sin dato
-  pulses = {50, 50, 50}; pidx = 0; CHECK(isnan(readHcsr04(18, 23)));       // < 2 cm = fuera de rango
+  pulses = {0, 0, 0}; pidx = 0; CHECK(isnan(readHcsr04(23, 19)));          // sin eco = sin dato
+  pulses = {50, 50, 50}; pidx = 0; CHECK(isnan(readHcsr04(23, 19)));       // < 2 cm = fuera de rango
 
   puts("== servo: ON va a angle_on, OFF vuelve a angle_off ==");
   actWrite(2, true); CHECK(actSt[2].on);
@@ -86,6 +91,15 @@ int main() {
   actReq[1] = 200000; actTick(2000000);                                            // piden 55 h: se recorta al tope
   actTick(2000000 + 86399UL * 1000UL); CHECK(actSt[1].on);
   actTick(2000000 + 86401UL * 1000UL); CHECK(!actSt[1].on);
+  puts("== tira WS2812: color y brillo ==");
+  CHECK(applyConfig(String(R"({"version":9,"sensors":[],"actuators":[{"key":"strip","label":"Tira","driver":"ws2812","pin":25,"max_seconds":86400}]})")) == 2);
+  CHECK(nActs == 1 && acts[0].drv == A_STRIP && strip != nullptr && stripPin == 25);
+  actColorReq[0] = (1UL << 24) | 0x336699; actBrReq[0] = 51; actReq[0] = 30; actTick(5000);
+  CHECK(actSt[0].on && actSt[0].rgb == 0x336699 && actSt[0].br == 50);              // 0x33*50/100=25 → 0x19, 0x66→0x33, 0x99→0x4C
+  CHECK(strip->last == 0x19334C);
+  actColorReq[0] = (1UL << 24) | 0xFF0000; actTick(6000);                           // cambia el color sin tocar el tiempo
+  CHECK(actSt[0].on && strip->last == ((255 * 50 / 100) << 16));
+  actStopReq[0] = true; actTick(7000); CHECK(!actSt[0].on && strip->last == 0);       // apagada: todos los LED a negro
   puts("== OLED: 3 variables por página y rota ==");
   for (int i = 0; i < nSens; i++) curVal[i] = 20.0f + i;
   curVal[ih] = 11.5f;

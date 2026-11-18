@@ -180,6 +180,8 @@ export interface TwinState {
   /** Variables personalizadas e indicadores definidos en el panel admin. */
   custom?: CustomVar[]
   actuators?: ActuatorState[]
+  /** Ánimo de la planta (ojos de la pantalla): lo calcula el backend. */
+  mood?: { mood: 'happy' | 'worried' | 'sad' | 'sleep'; reason?: string }
   config_version?: number
   health?: HealthBlock | null
 }
@@ -199,11 +201,15 @@ export interface ActuatorState {
   label: string
   on: boolean | null
   max_seconds: number
+  driver?: ActuatorDriver
+  /** Solo tira WS2812: color (#rrggbb) y brillo (%) vigentes. */
+  color?: string | null
+  brightness?: number | null
 }
 
 // ---- configuración editable del dispositivo (panel admin) ----
 export type SensorDriver = 'analog' | 'dht_t' | 'dht_h' | 'ds18b20' | 'hcsr04' | 'simulated'
-export type ActuatorDriver = 'relay' | 'servo'
+export type ActuatorDriver = 'relay' | 'servo' | 'ws2812'
 export interface SensorCfg {
   key: string
   label: string

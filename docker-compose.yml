@@ -71,6 +71,9 @@ services:
       MQTT_PORT: "1883"
       MQTT_USER: backend
       MQTT_PASSWORD: ${MQTT_BACKEND_PASSWORD}
+      # Dirección pública que reciben los ESP32 en GET /api/mqtt-config
+      MQTT_PUBLIC_HOST: ${MQTT_PUBLIC_HOST:-}
+      MQTT_PUBLIC_PORT: ${MQTT_PUBLIC_PORT:-}
       API_KEY: ${API_KEY:?copia .env.example a .env}
       MODELS_REQUIRE_KEY: ${MODELS_REQUIRE_KEY:-false}
     ports:

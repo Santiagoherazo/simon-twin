@@ -41,6 +41,7 @@ export function AdminPanel() {
   const scroller = useRef<HTMLDivElement>(null)
   const closeKey = useCallback(() => setKeyOpen(false), [])
 
+
   // La sección vive en el hash (#/admin/sensors): se puede enlazar y el botón Atrás funciona.
   useEffect(() => {
     const f = () => setSection(sectionFromHash())
@@ -212,14 +213,14 @@ export function AdminPanel() {
 
         <main className={'adm-main' + (section === 'models' ? ' wide' : '')}>
           {section === 'overview' && (
-            <Overview device={device} cfg={cfg} version={version} warnings={warnings} notebooks={notebooks} hasKey={!!apiKey} onGo={go} onNeedKey={() => setKeyOpen(true)} />
+            <Overview device={device} cfg={cfg} version={version} warnings={warnings} notebooks={notebooks} onGo={go} />
           )}
           {section === 'models' && <NotebookPanel apiKey={apiKey} deviceId={deviceId} onNeedKey={() => setKeyOpen(true)} />}
           {isConfig && !cfg && <p className="muted adm-loading">Cargando la configuración del dispositivo…</p>}
           {isConfig && cfg && (
             <>
               {section === 'sensors' && <SensorsTab cfg={cfg} patch={patch} drivers={drivers} onLoadHardware={loadHardware} />}
-              {section === 'actuators' && <ActuatorsTab cfg={cfg} patch={patch} drivers={drivers} sensorKeys={sensorKeys} apiKey={apiKey} dirty={dirty} onTest={test} onNeedKey={() => setKeyOpen(true)} />}
+              {section === 'actuators' && <ActuatorsTab cfg={cfg} patch={patch} drivers={drivers} sensorKeys={sensorKeys} dirty={dirty} onTest={test} />}
               {section === 'indicators' && <IndicatorsTab cfg={cfg} patch={patch} allVars={allVars} sensorKeys={sensorKeys} />}
               {section === 'device' && <DeviceTab cfg={cfg} patch={patch} version={version} />}
             </>
@@ -267,7 +268,7 @@ function KeyDialog({ value, onChange, onClose }: { value: string; onChange: (v: 
       window.setTimeout(onClose, 500)
     } catch (e) {
       // Sin cuadernos en el servidor (404) la clave igual pudo ser correcta: se guarda y se avisa.
-      if (e instanceof ApiError && e.status === 401) setState({ ok: false, text: 'El servidor no reconoce esa clave. Revisa API_KEY en tu .env.' })
+      if (e instanceof ApiError && e.status === 401) setState({ ok: false, text: 'El servidor no reconoce esa clave. Revisa API_KEY en el .env del servidor.' })
       else setState({ ok: true, text: 'Clave guardada (no se pudo comprobar con el servidor).' })
     } finally {
       setChecking(false)

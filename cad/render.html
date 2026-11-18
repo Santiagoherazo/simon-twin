@@ -1,0 +1,116 @@
+<!doctype html><meta charset="utf-8">
+<style>html,body{margin:0;background:#e9edf0}canvas{display:block}</style>
+<script type="importmap">{"imports":{"three":"/frontend/node_modules/three/build/three.module.js","three/addons/":"/frontend/node_modules/three/examples/jsm/"}}</script>
+<script type="module">
+import * as THREE from 'three'
+import { STLLoader } from 'three/addons/loaders/STLLoader.js'
+const q = new URLSearchParams(location.search)
+const view = q.get('view') || 'assembly'
+const W = innerWidth, H = innerHeight
+const r = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true })
+r.setPixelRatio(2); r.setSize(W, H); r.shadowMap.enabled = true; r.shadowMap.type = THREE.PCFSoftShadowMap
+r.toneMapping = THREE.ACESFilmicToneMapping; r.toneMappingExposure = 1.05
+document.body.appendChild(r.domElement)
+const scene = new THREE.Scene()
+const bg = document.createElement('canvas'); bg.width = 4; bg.height = 256
+const g = bg.getContext('2d'); const gr = g.createLinearGradient(0, 0, 0, 256); gr.addColorStop(0, '#f6f8fa'); gr.addColorStop(1, '#cfd6dc'); g.fillStyle = gr; g.fillRect(0, 0, 4, 256)
+scene.background = new THREE.CanvasTexture(bg); scene.background.colorSpace = THREE.SRGBColorSpace
+scene.add(new THREE.HemisphereLight(0xffffff, 0xaab4bb, 1.1))
+const sun = new THREE.DirectionalLight(0xffffff, 2.6); sun.castShadow = true
+sun.shadow.mapSize.set(4096, 4096); sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.6
+scene.add(sun, sun.target)
+const fill = new THREE.DirectionalLight(0xdfe8ff, 0.8); fill.position.set(-600, 500, 300); scene.add(fill)
+
+const MAT = {
+  cuerpo: { c: 0xe9e4da, r: 0.6 }, labio: { c: 0xd8d2c6, r: 0.55 },
+  sustrato: { c: 0x5a3d28, r: 1 }, sonda: { c: 0x2f6b3a, r: 0.6 }, tapon: { c: 0x4a5560, r: 0.5 },
+  controlador: { c: 0x1d4f8a, r: 0.5 }, nivel_marco: { c: 0xeef1f3, r: 0.5 },
+  nivel_vidrio: { c: 0xbfe3f5, r: 0.05, o: 0.35 }, nivel_agua: { c: 0x3aa0e8, r: 0.1, o: 0.7 }, lampara_panel: { c: 0xf3f4f6, r: 0.4 },
+  lampara_leds: { c: 0xffe9f4, r: 0.3, e: 0xffb7dd, ei: 0.9 }, lampara_poste: { c: 0xe9ecef, r: 0.45 },
+  lampara_union: { c: 0xdde1e5, r: 0.45 }, estaca: { c: 0xc58a3d, r: 0.35, m: 0.6 },
+  bomba_base: { c: 0x6c7885, r: 0.5 }, bomba_ref: { c: 0x2c6fd6, r: 0.4 },
+  caja_electronica: { c: 0x2f8f6b, r: 0.5 }, caja_tapa: { c: 0x3aa57f, r: 0.5 },
+  contenedor_principal: { c: 0x7a4fb5, r: 0.55 }, bandeja_tierra: { c: 0x1c1e23, r: 0.5 },
+  deposito_agua: { c: 0xd23a3a, r: 0.45 }, tapa_deposito: { c: 0xa82828, r: 0.45 }, tapon_llenado: { c: 0x4a5560, r: 0.5 },
+  agua_deposito: { c: 0x3aa0e8, r: 0.1, o: 0.75 }, suelo_vidrio: { c: 0xbfe3f5, r: 0.05, o: 0.3 }, sonda_humedad: { c: 0x2f6b3a, r: 0.6 },
+  soporte_ultrasonido: { c: 0xe0a030, r: 0.45 }, ultrasonido_referencia: { c: 0x2a6fd0, r: 0.4 },
+  ducto_riego: { c: 0x1fb58a, r: 0.4 }, conector_deposito: { c: 0x4a5560, r: 0.5 }, canaleta_cables: { c: 0x39424d, r: 0.5 }, tapon_drenaje: { c: 0x4a5560, r: 0.5 }, pantalla_oled: { c: 0x0b2a55, r: 0.2 },
+}
+const MOD = { base_principal: { c: 0xc9ccd2, r: 0.6 }, deposito_agua: { c: 0x5a9bd8, r: 0.35, o: 0.55 }, soporte_bomba: { c: 0xf0902f, r: 0.5 },
+  recipiente_tierra: { c: 0x2fa06c, r: 0.55 }, tapon_llenado: { c: 0x3a3d44, r: 0.5 }, bomba_referencia: { c: 0xd9dde2, r: 0.4 } }
+const pick = (n) => { for (const k of Object.keys(MAT)) if (n.startsWith(k)) return MAT[k]; if (n.startsWith('bomba_referencia')) return MAT.bomba_ref; return { c: 0x888888, r: 0.6 } }
+const loader = new STLLoader()
+const root = new THREE.Group(); scene.add(root)
+const load = (url, name, mat) => new Promise((res) => loader.load(url, (geo) => {
+  geo.computeVertexNormals()
+  const m = new THREE.MeshStandardMaterial({ color: mat.c, roughness: mat.r ?? 0.5, metalness: mat.m ?? 0, transparent: !!mat.o, opacity: mat.o ?? 1,
+    emissive: mat.e ?? 0x000000, emissiveIntensity: mat.ei ?? 0 })
+  const mesh = new THREE.Mesh(geo, m); mesh.castShadow = true; mesh.receiveShadow = true; mesh.name = name; res(mesh)
+}))
+
+let files
+if (view.startsWith('mod')) {
+  const names = ['base_principal', 'deposito_agua', 'soporte_bomba', 'bomba_referencia', 'recipiente_tierra', 'tapon_llenado']
+  const ms = await Promise.all(names.map((n) => load('/cad/modular/referencia/' + n + '.stl', n, MOD[n])))
+  const ex = view === 'mod_exp'; const dz = { base_principal: 0, deposito_agua: 25, soporte_bomba: 150, bomba_referencia: 150, recipiente_tierra: 185, tapon_llenado: 290 }
+  ms.forEach((m) => { if (ex) m.position.z += dz[m.name]; root.add(m) })
+  if (view === 'mod_cut') {
+    r.localClippingEnabled = true
+    const pl = new THREE.Plane(new THREE.Vector3(0, 1, 0), -10)
+    ms.forEach((m) => { m.material.clippingPlanes = [pl]; m.material.side = THREE.DoubleSide; if (m.name === 'deposito_agua') { m.material.opacity = 1; m.material.transparent = false } })
+  }
+} else if (['assembly', 'back', 'parts3', 'cut', 'gauge', 'tank', 'all'].includes(view)) {
+  let names = ['contenedor_principal', 'labio', 'bandeja_tierra', 'sustrato', 'sonda_humedad', 'suelo_vidrio', 'deposito_agua', 'tapa_deposito', 'tapon_llenado',
+    'agua_deposito', 'bomba_referencia', 'nivel_marco', 'nivel_vidrio', 'lampara_panel', 'lampara_leds', 'lampara_poste', 'lampara_union',
+    'estaca_ldr_NO', 'estaca_ldr_NE', 'estaca_ldr_SO', 'estaca_ldr_SE', 'caja_electronica', 'caja_tapa', 'soporte_ultrasonido', 'ultrasonido_referencia', 'ducto_riego', 'tapon_drenaje', 'pantalla_oled', 'conector_deposito_A', 'conector_deposito_B', 'canaleta_cables']
+  if (view === 'tank') names = ['deposito_agua', 'tapa_deposito', 'tapon_llenado', 'soporte_ultrasonido', 'ultrasonido_referencia', 'bomba_referencia', 'agua_deposito', 'nivel_vidrio']
+  else if (view !== 'assembly' && view !== 'back' && view !== 'all') names = names.filter((n) => !/lampara|caja/.test(n))
+  if (view === 'gauge') names = names.filter((n) => !/sustrato|bandeja|estaca|sonda|suelo/.test(n))
+  const ms = await Promise.all(names.map((n) => load('/cad/referencia/' + n + '.stl', n, pick(n))))
+  const ex = view === 'parts3' || view === 'all'
+  const T = 270, K2 = 150
+  const dz = { bandeja_tierra: T, sustrato: T, sonda_humedad: T, suelo_vidrio: T, estaca_ldr_NO: T, estaca_ldr_NE: T, estaca_ldr_SO: T, estaca_ldr_SE: T,
+    deposito_agua: K2, agua_deposito: K2, bomba_referencia: K2, nivel_vidrio: K2, tapa_deposito: K2 + 150, tapon_llenado: K2 + 210 }
+  const dx = { deposito_agua: 90, agua_deposito: 90, bomba_referencia: 90, nivel_vidrio: 90, tapa_deposito: 90, tapon_llenado: 90 }
+  if (view === 'all') {
+    const A = 300, B = 160
+    Object.assign(dz, { labio: 60, ducto_riego: 420, soporte_ultrasonido: B + 330, ultrasonido_referencia: B + 330, lampara_panel: 330, lampara_leds: 330, lampara_union: 330, lampara_poste: 150,
+      deposito_agua: B, agua_deposito: B, bomba_referencia: B, nivel_vidrio: B, tapa_deposito: B + 160, tapon_llenado: B + 240, caja_tapa: 120,
+      bandeja_tierra: A, sustrato: A, sonda_humedad: A, suelo_vidrio: A, estaca_ldr_NO: A, estaca_ldr_NE: A, estaca_ldr_SO: A, estaca_ldr_SE: A })
+    Object.assign(dx, { deposito_agua: 150, agua_deposito: 150, bomba_referencia: 150, nivel_vidrio: 150, tapa_deposito: 150, tapon_llenado: 150, soporte_ultrasonido: 150, ultrasonido_referencia: 150, tapon_drenaje: -130 })
+    window.__dy = { conector_deposito_A: 60, conector_deposito_B: 60, canaleta_cables: 90, nivel_marco: -110, pantalla_oled: -170, caja_electronica: 170, caja_tapa: 170 }
+  }
+  ms.forEach((m) => { if (window.__dy && window.__dy[m.name]) m.position.y += window.__dy[m.name]; if (m.name === 'caja_tapa') m.position.z += 8; if (ex && dz[m.name]) m.position.z += dz[m.name]; if (ex && dx[m.name]) m.position.x += dx[m.name]; if (ex && m.name === 'sustrato') m.visible = false; root.add(m) })
+  if (view === 'cut') {
+    r.localClippingEnabled = true
+    const pl = new THREE.Plane(new THREE.Vector3(0, 1, 0), Number(q.get('y') || 0))
+    ms.forEach((m) => { m.material = m.material.clone(); m.material.clippingPlanes = [pl]; m.material.side = THREE.DoubleSide })
+  }
+} else {
+  // piezas nuevas sueltas, en fila
+  const list = [['estaca_ldr_x4', 'estaca'], ['soporte_ultrasonido', 'soporte_ultrasonido'], ['caja_electronica', 'caja_electronica'], ['caja_tapa', 'caja_tapa']]
+  let x = 0
+  for (const [f, k] of list) {
+    const m = await load('/cad/imprimir/' + f + '.stl', f, MAT[k])
+    m.geometry.computeBoundingBox(); const bb = m.geometry.boundingBox
+    m.position.x = x - bb.min.x; x += bb.max.x - bb.min.x + 22; root.add(m)
+  }
+}
+const box = new THREE.Box3().setFromObject(root); const c = box.getCenter(new THREE.Vector3()), s = box.getSize(new THREE.Vector3())
+// suelo con sombra
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(4000, 4000), new THREE.ShadowMaterial({ opacity: 0.22 })); floor.position.set(c.x, c.y, box.min.z - 0.5); floor.receiveShadow = true; scene.add(floor)
+const rad = Math.max(s.x, s.y, s.z)
+const cam = new THREE.PerspectiveCamera(view === 'assembly' ? 30 : 26, W / H, 1, 8000); cam.up.set(0, 0, 1)
+const dir = view === 'all' ? new THREE.Vector3(-0.55, -1, 0.55).normalize() : view === 'tank' ? new THREE.Vector3(-0.55, -0.9, 0.8).normalize() : view === 'cut' ? new THREE.Vector3(0.05, -1, 0.5).normalize() : view === 'parts3' ? new THREE.Vector3(-0.45, -1, 0.55).normalize() : view === 'gauge_top' ? new THREE.Vector3(0.0, -0.25, 1).normalize() : view === 'gauge' ? new THREE.Vector3(0.25, -1, 0.55).normalize() : view.startsWith('mod') ? new THREE.Vector3(-0.55, -1, 0.75).normalize() : view === 'back' ? new THREE.Vector3(0.55, 1, 0.4).normalize() : view === 'assembly' ? new THREE.Vector3(-0.45, -1, 0.7).normalize() : new THREE.Vector3(-0.1, -1, 0.75).normalize()
+const corners = []; for (const x of [box.min.x, box.max.x]) for (const y of [box.min.y, box.max.y]) for (const z of [box.min.z, box.max.z]) corners.push(new THREE.Vector3(x, y, z))
+let dist = rad * 0.8
+for (let i = 0; i < 40; i++) {
+  cam.position.copy(c).addScaledVector(dir, dist); cam.lookAt(c); cam.updateMatrixWorld(); cam.updateProjectionMatrix()
+  const m = Math.max(...corners.map((p) => { const q = p.clone().project(cam); return Math.max(Math.abs(q.x), Math.abs(q.y)) }))
+  dist *= m / 0.92
+}
+cam.position.copy(c).addScaledVector(dir, dist); cam.lookAt(c)
+sun.position.set(c.x - rad * 0.8, c.y - rad * 0.9, box.max.z + rad * 1.3); sun.target.position.copy(c)
+const d = rad * 1.1; Object.assign(sun.shadow.camera, { left: -d, right: d, top: d, bottom: -d, near: 1, far: rad * 5 }); sun.shadow.camera.updateProjectionMatrix()
+r.render(scene, cam); window.__done = true
+</script>

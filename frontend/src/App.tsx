@@ -263,17 +263,15 @@ function Twin() {
   )
 }
 
-const isAdminRoute = () =>
-  location.pathname === '/config' || location.pathname === '/admin' ||
-  location.hash.startsWith('#/config') || location.hash.startsWith('#/admin')
+const isAdminHash = () => location.hash.startsWith('#/admin')
 
-/** #/admin (y /config, /admin para enlaces directos) abre el panel administrativo; el resto es el gemelo. */
+/** Ruta mínima: #/admin abre el panel administrativo; el resto es el gemelo. */
 export default function App() {
-  const [admin, setAdmin] = useState(isAdminRoute)
+  const [admin, setAdmin] = useState(isAdminHash)
   useEffect(() => {
-    const f = () => setAdmin(isAdminRoute)
-    window.addEventListener('hashchange', f); window.addEventListener('popstate', f)
-    return () => { window.removeEventListener('hashchange', f); window.removeEventListener('popstate', f) }
+    const f = () => setAdmin(isAdminHash())
+    window.addEventListener('hashchange', f)
+    return () => window.removeEventListener('hashchange', f)
   }, [])
   return admin ? (
     <Suspense fallback={<div className="admin-boot" role="status">Abriendo configuración…</div>}>

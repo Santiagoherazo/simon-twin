@@ -9,16 +9,14 @@ import { AlertMarkers, Dust, Lights, Rain } from './Effects'
 import { Env } from './Env'
 import { Plant } from './Plant'
 import { Post } from './post'
-import { Planter } from './Planter'
+import { Maqueta } from './Maqueta'
 import { adaptiveEnabled, QualityContext, type Quality } from './quality'
 import { Smoother } from './smooth'
 import { ArRoot } from './ArLayer'
-import { FOCUS_TARGET } from './layout'
+import { FOCUS_TARGET, PLANT_POS } from './layout'
 import { setFocus, useFocus, useXr } from '../xr'
-import { WaterSystem } from './WaterSystem'
 import { Climate } from './Climate'
-import { LdrMatrix } from './LdrMatrix'
-import { ActuatorBank, SensorBoard } from './Devices'
+import { SensorBoard } from './Devices'
 
 /** Con postprocesado el tono lo aplica la cadena; en calidad baja lo aplica el renderer. */
 function ToneSwitch({ quality, force }: { quality: Quality; force: boolean }) {
@@ -227,19 +225,14 @@ export function Scene({ narrow, quality, onQualityDrop, onTooSlow, shiftPx = 0 }
                 <shadowMaterial opacity={0.38} />
               </mesh>
             )}
-            <Pickable id="soil">
-              <Planter />
-            </Pickable>
+            <Maqueta />
             <Pickable id="plant">
               <Plant />
             </Pickable>
-            <Pickable id="tank">
-              <WaterSystem />
-            </Pickable>
-            <Climate />
-            <LdrMatrix />
+            <group position-x={PLANT_POS[0]}>
+              <Climate />
+            </group>
             {!xr.active && <SensorBoard />}
-            {!xr.active && <ActuatorBank />}
             {!xr.active && <Dust />}
             <Rain />
             <AlertMarkers />

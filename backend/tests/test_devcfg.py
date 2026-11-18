@@ -49,7 +49,7 @@ def test_hardware_confirmado_es_coherente():
     cfg = config_hardware_confirmado()
     assert pin_warnings(cfg) == []                                   # ningún pin repetido ni malo
     assert {s.driver for s in cfg.sensors} == {"dht_t", "dht_h", "analog", "ds18b20", "hcsr04"}
-    assert [a.key for a in cfg.actuators] == ["pump", "light", "servo"]
+    assert [a.key for a in cfg.actuators] == ["pump", "light", "servo", "strip"]
     assert cfg.display.enabled and cfg.display.driver == "ssd1306_128x32"
     keys = {s.key for s in cfg.sensors}
     assert not keys & {"ph", "ec", "n", "p", "k", "lux", "tank_ok", "pump_ma"}      # nada que no exista en el equipo real
@@ -178,3 +178,73 @@ def test_ultrasonido_calcula_nivel_y_alerta_de_tanque_bajo():
         await pool.close()
 
     asyncio.run(go())
+
+
+def test_los_cuadernos_piden_clave_por_defecto():
+    """Ejecutan código en el servidor: sin clave no debe quedar abierto salvo que se desactive a propósito."""
+    from app.config import Settings
+    assert Settings(database_url="postgresql://x/y", mqtt_password="m", api_key="k").models_require_key is True
+
+
+def test_los_modelos_no_ven_columnas_de_variables_que_el_equipo_no_mide(tmp_path, monkeypatch):
+    import json
+    from app.kernel_runner import Simon
+    rows = [{"ts": "2026-11-14T10:00:00+00:00", "vwc_raw": 2200, "ldr_nw": 60.0, "tank_cm": 9.4, "ph": None, "ec": None, "k": None},
+            {"ts": "2026-11-14T10:01:00+00:00", "vwc_raw": 2210, "ldr_nw": 61.0, "tank_cm": 9.5, "ph": None, "ec": None, "k": None}]
+    f = tmp_path / "d.json"
+    f.write_text(json.dumps(rows))
+    monkeypatch.setenv("SIMON_DATA", str(f))
+    cols = set(Simon().data().columns)
+    assert {"ts", "vwc_raw", "ldr_nw", "tank_cm"} <= cols        # lo real, incluidas las variables del hardware nuevo
+    assert not cols & {"ph", "ec", "k"}                           # lo que no existe, fuera
+    rows[0]["ph"] = 6.4                                            # un dispositivo que sí mide pH lo conserva
+    f.write_text(json.dumps(rows))
+    assert "ph" in Simon().data().columns
+
+
+@pytest.mark.skipif(not LOCAL, reason="sin Postgres de prueba")
+def test_restaurar_un_respaldo_con_hardware_retirado_no_frena_el_resto():
+    """Un respaldo hecho con el hardware de antes (BH1750/PWM) no se puede validar: se omite, no aborta."""
+    import json
+    import asyncpg
+    from app import backup
+    from app.migrate import migrate
+
+    async def go():
+        loc = await asyncpg.create_pool(LOCAL, min_size=1, max_size=3)
+        await loc.execute("DROP TABLE IF EXISTS backup_outbox, device_sensors, device_actuators, device_indicators, telemetry, devices CASCADE")
+        await migrate(loc)
+        await loc.execute("INSERT INTO devices (device_id, name) VALUES ('viejo','Viejo') ON CONFLICT DO NOTHING")
+
+        class Remote:
+            async def fetch(self, q, *a):
+                if "simon_device_config" in q:
+                    return [{"device_id": "viejo", "config": json.dumps({"report_interval_s": 10, "indicators": [],
+                            "sensors": [{"key": "lux", "label": "Luz", "driver": "bh1750"}], "actuators": []})}]
+                return []
+            async def fetchval(self, *a): return 0
+            async def execute(self, *a): return None
+        app = SimpleNamespace(state=SimpleNamespace(pool=loc))
+        out = await backup.restore(app, Remote(), 1)
+        assert out["configs"] == 0                       # se omitió con aviso y la restauración terminó
+        await loc.close()
+
+    asyncio.run(go())
+
+
+def test_tira_ws2812_en_config_hardware():
+    cfg = config_hardware_confirmado()
+    strip = {a.key: a for a in cfg.actuators}["strip"]
+    assert strip.driver == "ws2812" and strip.pin == 25
+    assert not [w for w in pin_warnings(cfg) if "strip" in w]
+
+
+def test_plant_mood():
+    from app.twin import plant_mood
+    ok = {"readings": {"tank_ok": True}, "alerts": [], "suitability": {"overall": 95}}
+    assert plant_mood(ok)["mood"] == "happy"
+    assert plant_mood({**ok, "alerts": [{"level": "warn", "message": "poca agua"}]})["mood"] == "worried"
+    assert plant_mood({**ok, "readings": {"tank_ok": False}})["mood"] == "worried"
+    assert plant_mood({**ok, "alerts": [{"level": "critical", "message": "x"}]})["mood"] == "sad"
+    assert plant_mood({**ok, "suitability": {"overall": 20}})["mood"] == "sad"
+    assert plant_mood({"alerts": [{"code": "no_data", "level": "info"}]})["mood"] == "sleep"

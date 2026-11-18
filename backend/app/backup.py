@@ -172,8 +172,13 @@ async def restore(app, remote: asyncpg.Pool, days: int) -> dict:
         local = await load_config(app.state.pool, r["device_id"])
         if local is not None and not (local["sensors"] or local["actuators"] or local["indicators"]):
             raw = json.loads(r["config"]) if isinstance(r["config"], str) else r["config"]
-            await save_config(app.state.pool, r["device_id"], DeviceConfig.model_validate(
-                {k: raw[k] for k in ("report_interval_s", "sensors", "actuators", "indicators")}))
+            try:
+                # «display» (pantalla OLED) también se recupera; un respaldo anterior que no lo trae queda con la pantalla apagada
+                cfg = DeviceConfig.model_validate({k: raw[k] for k in ("report_interval_s", "sensors", "actuators", "indicators", "display") if k in raw})
+            except ValueError as e:                  # p. ej. un respaldo con hardware que ya no existe (BH1750, PWM): no frena el resto
+                log.warning("config de %s no restaurada (no es válida con el hardware actual): %s", r["device_id"], str(e).splitlines()[0])
+                continue
+            await save_config(app.state.pool, r["device_id"], cfg)
             restored_cfg += 1
     total = 0
     last_ts, last_dev = datetime.now(timezone.utc) - timedelta(days=days), ""

@@ -101,6 +101,7 @@ def test_inbox_anon_validacion_dedupe_y_restore():
         await migrate(loc)
         await rem.execute(backup.REMOTE_SCHEMA)
         backup.settings.supabase_db_url = "x"
+        backup.settings.sync_require_device_key = True      # opcional: por defecto el buzón no exige clave
         key = "clave-de-prueba"
         await loc.execute("UPDATE devices SET ingest_key_hash=$1 WHERE device_id='esp32-01'", backup.hash_key(key))
         app = SimpleNamespace(state=SimpleNamespace(pool=loc, cache=None))
@@ -143,19 +144,17 @@ def test_inbox_anon_validacion_dedupe_y_restore():
         await loc.execute("DELETE FROM telemetry")
         # config de sensores: se respalda y se recupera si la base local la pierde
         from app.devcfg import default_config_esp32, save_config
-        cfg = default_config_esp32()
-        await save_config(loc, "esp32-01", cfg)
+        await save_config(loc, "esp32-01", default_config_esp32())
         await backup.sync_devices(loc, rem)
         assert await rem.fetchval("SELECT count(*) FROM simon_device_config") >= 1
         await loc.execute("DELETE FROM device_sensors"); await loc.execute("DELETE FROM device_actuators"); await loc.execute("DELETE FROM device_indicators")
+        await loc.execute("UPDATE devices SET display = NULL")                      # como una base local perdida: sin pantalla configurada
         out = await backup.restore(app, rem, 3)
-        # el catalogo restaurado debe coincidir con el del hardware confirmado
-        assert out["configs"] == 2 and await loc.fetchval(
-            "SELECT count(*) FROM device_sensors WHERE device_id='esp32-01'") == len(cfg.sensors)
-        assert await loc.fetchval(
-            "SELECT count(*) FROM device_actuators WHERE device_id='esp32-01'") == len(cfg.actuators)
-        assert await loc.fetchval(
-            "SELECT count(*) FROM device_indicators WHERE device_id='esp32-01'") == len(cfg.indicators)
+        assert out["configs"] == 2 and await loc.fetchval("SELECT count(*) FROM device_sensors WHERE device_id='esp32-01'") == 9
+        from app.devcfg import load_config
+        rest = await load_config(loc, "esp32-01")
+        assert rest["display"]["enabled"] and rest["display"]["show"][:2] == ["air_t", "air_rh"]      # la pantalla OLED se recupera
+        assert [a["driver"] for a in rest["actuators"]] == ["relay", "relay", "servo", "ws2812"] and rest["actuators"][2]["angle_on"] == 90
         assert out["telemetry_read"] == 2 and await loc.fetchval("SELECT count(*) FROM telemetry") == 2
         assert await loc.fetchval("SELECT count(*) FROM telemetry") == 2
         await loc.close(); await rem.close()
