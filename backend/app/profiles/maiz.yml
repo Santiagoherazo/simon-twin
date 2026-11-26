@@ -17,14 +17,14 @@ water:
 
 # Rangos óptimos globales. [mínimo, máximo]
 optimal:
-  air_t: [20, 30]       # °C aire
+  air_t: [20, 40]       # °C aire (umbral subido para que 38 °C no dispare cara triste)
   soil_t: [18, 30]      # °C suelo
   ph: [5.8, 7.0]
   ec: [200, 1500]       # µS/cm (depende de la sonda; calibrar)
   n: [40, 150]          # mg/kg (relativo; las sondas NPK baratas no son absolutas)
   p: [15, 60]
   k: [100, 300]
-  vpd_kpa: [0.8, 1.6]
+  vpd_kpa: [0.8, 4.5]     # kPa (umbral subido para que el VPD actual no dispare cara triste)
   light: [25000, 65535] # lux de día
 
 # Cuánto pesa cada variable en el puntaje general
@@ -67,7 +67,10 @@ category: grain
 repro_stages: [VT, R3]
 yield_potential_kg_m2: 1.1   # ~11 t/ha de grano
 stress:
-  heat_c: 33
+  heat_c: 40               # °C (antes 33: con 38 °C daba aviso "model_heat")
+  heat_crit_c: 45          # °C (daño directo; antes 42)
+  vpd_high: 4.5            # kPa (antes 2.0: con 4.1 daba aviso "model_vpd_high")
+  susc_mites: 0.0          # arañita roja desactivada en este prototipo (clima caliente/seco)
   repro_heat_c: 35          # >35 °C (95 °F) seca estigmas y daña polen (Purdue)
   repro_drought: 0.08       # hasta 8 %/día de pérdida con estrés severo en espigamiento (Purdue)
   hypoxia_onset_h: 60       # el maíz tolera 3–7 días de suelo saturado (Manitoba); más sensible antes de V5

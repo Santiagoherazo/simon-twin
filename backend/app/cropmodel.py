@@ -77,7 +77,7 @@ PARAM_DOC: dict[str, tuple[str, str, float, float, str]] = {
     "stress.ec_slope_pct": ("Pérdida por cada dS/m extra", "%", 2, 40, "Pendiente de Maas–Hoffman."),
     "stress.dli_min": ("Luz diaria mínima (DLI)", "mol/m²/día", 4, 30, "Con menos luz el crecimiento cae proporcionalmente."),
     "stress.vpd_low": ("VPD bajo (riesgo hongos)", "kPa", 0.1, 0.8, "Aire casi saturado: hojas mojadas y poca transpiración."),
-    "stress.vpd_high": ("VPD alto (cierra estomas)", "kPa", 0.8, 3.5, "Aire muy seco: la planta cierra estomas y no absorbe calcio."),
+    "stress.vpd_high": ("VPD alto (cierra estomas)", "kPa", 0.8, 5.0, "Aire muy seco: la planta cierra estomas y no absorbe calcio."),
     "stress.bolt_c": ("Temperatura de espigado", "°C", 0, 40, "Hojas: el calor sostenido provoca floración prematura (0 = no aplica)."),
     "stress.repro_drought": ("Pérdida por sequía en floración", "por día", 0, 0.2, "Fracción de rendimiento perdida por día con estrés severo en etapa reproductiva."),
     "stress.susc_botrytis": ("Susceptibilidad a moho gris", "×", 0, 3, "Multiplica la velocidad de acumulación del riesgo."),

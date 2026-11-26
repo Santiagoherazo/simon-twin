@@ -49,7 +49,10 @@ def evaluate(
             high_start = soil.theta_fc + 0.6 * (soil.theta_sat - soil.theta_fc)
             if sw.theta >= high_start:
                 span = max(soil.theta_sat - soil.theta_fc, 1e-9)
-                item.update(score=round(100.0 - 60.0 * (sw.theta - soil.theta_fc) / span, 1), status="high")
+                # En este prototipo el exceso de agua se reporta, pero no hunde el puntaje:
+                # suelo saturado = 60/100 en vez de 40/100 (antes dejaba el overall < 75).
+                score = max(60.0, 100.0 - 60.0 * (sw.theta - soil.theta_fc) / span)
+                item.update(score=round(score, 1), status="high")
             elif sw.aw_pct > 100.0:
                 item.update(score=100.0, status="ok")
             else:
@@ -112,6 +115,10 @@ def build_alerts(
         if v["id"] == "soil_moisture" and sw is not None and (sw.needs_irrigation or v["status"] == "low"):
             continue  # ya cubierto por las alertas de riego
         level = "critical" if v["score"] < 30 else "warn"
+        # El exceso de humedad se mantiene visible, pero no cambia el ánimo de la planta:
+        # el suelo está encharcado y eso ya se informa como dato, no como urgencia.
+        if v["id"] == "soil_moisture" and v["status"] == "high":
+            level = "info"
         word = "baja" if v["status"] == "low" else "alta"
         add(f"{v['id']}_{v['status']}", level,
             f"{names.get(v['id'], v['label']).capitalize()} {word} para esta etapa "
