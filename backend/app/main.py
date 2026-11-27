@@ -487,9 +487,10 @@ async def put_device_config(device_id: str, body: DeviceConfig):
 
 
 class ActuatorCommand(BaseModel):
-    seconds: int | None = Field(default=None, ge=0, le=86400, description="0 = apagar ahora; el tope real es el max_seconds del actuador. Omitido: solo cambia color/brillo de la tira")
+    seconds: int | None = Field(default=None, ge=0, le=86400, description="0 = apagar ahora; el tope real es el max_seconds del actuador. Omitido: solo cambia color/brillo/ángulo")
     color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$", description="solo tira WS2812: color #rrggbb")
     brightness: int | None = Field(default=None, ge=1, le=100, description="solo tira WS2812: brillo 1-100 %")
+    degrees: int | None = Field(default=None, ge=0, le=180, description="solo servo: ángulo absoluto 0-180° (0 = posición de reposo); no se mezcla con seconds/color/brightness")
 
 
 @app.post("/devices/{device_id}/actuators/{key}/command", dependencies=[Depends(require_api_key)])
@@ -501,8 +502,8 @@ async def actuator_command(device_id: str, key: str, body: ActuatorCommand):
     act = next((a for a in cfg["actuators"] if a["key"] == key and a["enabled"]), None)
     if act is None:
         raise HTTPException(404, "actuador desconocido o desactivado")
-    if body.seconds is None and body.color is None and body.brightness is None:
-        raise HTTPException(422, "indica seconds o color/brightness")
+    if body.seconds is None and body.color is None and body.brightness is None and body.degrees is None:
+        raise HTTPException(422, "indica seconds, color/brightness o degrees")
     if body.seconds is not None and body.seconds > act["max_seconds"]:
         raise HTTPException(422, f"máximo {act['max_seconds']} s para {key}")
     online = await app.state.pool.fetchval("SELECT online FROM devices WHERE device_id = $1", device_id)
@@ -520,6 +521,10 @@ async def actuator_command(device_id: str, key: str, body: ActuatorCommand):
             cmd["color"] = body.color.lower()
         if body.brightness is not None:
             cmd["brightness"] = body.brightness
+    if body.degrees is not None:
+        if act["driver"] != "servo":
+            raise HTTPException(422, f"{key} no es un servo: no admite degrees")
+        cmd["degrees"] = body.degrees
     await app.state.mqtt.publish(f"simon/{device_id}/cmd/{key}", payload=json.dumps(cmd), qos=1)
     return cmd
 

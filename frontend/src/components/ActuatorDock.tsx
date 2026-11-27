@@ -44,6 +44,7 @@ export function ActuatorDock({ deviceId, online, actuators, variant = 'float', e
   const [customErr, setCustomErr] = useState<string | null>(null)
   const [color, setColor] = useState('#ffffff')
   const [bright, setBright] = useState(60)
+  const [servoAngle, setServoAngle] = useState(105)
   const pick = useActuatorPick()
   const lastPick = useRef(0)
 
@@ -93,6 +94,24 @@ export function ActuatorDock({ deviceId, online, actuators, variant = 'float', e
       setMsg({ ok: true, text: `${a.label}: color enviado` })
     } catch (e) {
       setMsg({ ok: false, text: (e as Error).message })
+    }
+  }
+
+  /** Servo: manda un ángulo absoluto sin tocar el temporizador (0 = posición de reposo). */
+  const sendAngle = async (a: ActuatorState, angle: number) => {
+    if (!apiKey) { setMsg({ ok: false, text: 'Falta la API key. Abre Configuración y guárdala una vez.' }); return }
+    setBusy(true)
+    setMsg(null)
+    navigator.vibrate?.(25)
+    try {
+      await actuate(deviceId, a.key, null, apiKey, { degrees: angle })
+      setOverride((m) => ({ ...m, [a.key]: { on: angle > 0, until: Date.now() + 15000 } }))
+      setNow(Date.now())
+      setMsg({ ok: true, text: `${a.label}: ${angle}° enviado` })
+    } catch (e) {
+      setMsg({ ok: false, text: (e as Error).message })
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -204,10 +223,28 @@ export function ActuatorDock({ deviceId, online, actuators, variant = 'float', e
                       </div>
                     )}
                     {isLatch(kind) ? (
-                      <div className="act-opts two">
-                        <button type="button" onClick={() => void send(a, 1)} disabled={busy || !online || on}>Abrir</button>
-                        <button type="button" onClick={() => void send(a, 0)} disabled={busy || !online || !on}>Cerrar</button>
-                      </div>
+                      <>
+                        <div className="act-opts two">
+                          <button type="button" onClick={() => void send(a, 1)} disabled={busy || !online || on}>Abrir</button>
+                          <button type="button" onClick={() => void send(a, 0)} disabled={busy || !online || !on}>Cerrar</button>
+                        </div>
+                        <label className="act-bright">
+                          <small className="act-cap">Ángulo {servoAngle}°</small>
+                          <input
+                            type="number"
+                            min={0}
+                            max={180}
+                            step={5}
+                            value={servoAngle}
+                            disabled={!online}
+                            onChange={(e) => setServoAngle(Math.min(180, Math.max(0, Number(e.target.value) || 0)))}
+                            aria-label="Ángulo del servo en grados"
+                          />
+                        </label>
+                        <button type="button" onClick={() => void sendAngle(a, servoAngle)} disabled={busy || !online}>
+                          Aplicar ángulo
+                        </button>
+                      </>
                     ) : (
                       <>
                         {on && (

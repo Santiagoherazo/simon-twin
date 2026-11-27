@@ -114,14 +114,14 @@ export async function pump(id: string, seconds: number, apiKey: string): Promise
 }
 
 /** Enciende un actuador N segundos (bomba, luz externa, servo) o lo apaga ya con seconds = 0. Sin nube va directo al ESP32. */
-export async function actuate(id: string, key: string, seconds: number | null, apiKey: string, opts: StripOpts = {}): Promise<void> {
+export async function actuate(id: string, key: string, seconds: number | null, apiKey: string, opts: ActOpts = {}): Promise<void> {
   const s = seconds === null ? null : Math.max(0, Math.floor(seconds))
   if (key === 'pump' && s !== null && s > 0) {
     await pump(id, s, apiKey)
     return
   }
   if (localRoute.host) {
-    const q = (s === null ? '' : `&s=${s}`) + (opts.color ? `&color=${opts.color.replace('#', '')}` : '') + (opts.brightness ? `&b=${opts.brightness}` : '')
+    const q = (s === null ? '' : `&s=${s}`) + (opts.color ? `&color=${opts.color.replace('#', '')}` : '') + (opts.brightness ? `&b=${opts.brightness}` : '') + (opts.degrees === undefined ? '' : `&angle=${opts.degrees}`)
     const r = await fetch(`http://${localRoute.host}/api/act?key=${encodeURIComponent(key)}${q}`, { method: 'POST' })
     if (!r.ok) throw new ApiError(r.status, `El ESP32 rechazó la orden (${r.status}).`)
     return
@@ -175,11 +175,12 @@ export async function putConfig(
   })
 }
 
-export interface StripOpts {
+export interface ActOpts {
   color?: string
   brightness?: number
+  degrees?: number
 }
-export const commandActuator = (id: string, key: string, seconds: number | null, apiKey: string, opts: StripOpts = {}) =>
+export const commandActuator = (id: string, key: string, seconds: number | null, apiKey: string, opts: ActOpts = {}) =>
   request<{ cmd_id: string }>(`/devices/${encodeURIComponent(id)}/actuators/${encodeURIComponent(key)}/command`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
