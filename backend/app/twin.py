@@ -29,6 +29,19 @@ log = logging.getLogger("simon.twin")
 READING_COLS = ["vwc_pct", "soil_t", "ph", "ec", "n", "p", "k", "air_t", "air_rh",
                 "vpd_kpa", "lux", "tank_ok", "pump_on", "pump_ma"]
 FORECAST_HOURS = 120
+DROUGHT_WET_PCT = 40.0   # con ≥40 % de humedad actual manda la sonda, no el historial del modelo
+
+
+def drought_is_current(readings: dict | None, soil: dict | None) -> bool:
+    """El replay del modelo cubre 14 días y conserva el peor momento; el llanto debe
+    reflejar la humedad de AHORA. Sin lectura de humedad no se oculta una alerta real."""
+    vwc = (readings or {}).get("vwc_pct")
+    if isinstance(vwc, (int, float)) and not isinstance(vwc, bool):
+        return vwc < DROUGHT_WET_PCT
+    ks = (soil or {}).get("ks")
+    if isinstance(ks, (int, float)) and not isinstance(ks, bool):
+        return ks < 0.7
+    return True
 
 
 class TwinError(Exception):
@@ -317,6 +330,9 @@ async def _compute_state(app, device_id: str) -> dict:
         import logging
         logging.getLogger("simon.assess").exception("assess falló")
     alerts = alerts_from_assessment(assessment) + alerts
+    # La sequía del modelo es historia; si la sonda dice que ahora está húmeda, no es crítico.
+    if not drought_is_current(readings, None if sw is None else {"ks": sw.ks}):
+        alerts = [a for a in alerts if a.get("code") != "model_drought"]
 
     prediction = None
     if sw is not None:
@@ -416,11 +432,14 @@ def plant_mood(state: dict) -> dict:
     """Estado de ánimo de la planta para los ojos de la pantalla: happy / worried / sad / sleep (sin datos).
 
     sad = hay una alerta crítica, la planta murió o la aptitud es < 40; worried = alerta de aviso, aptitud < 75 o tanque bajo.
+    `model_drought` no cuenta como crítica si la sonda actual marca ≥40 % (sequía del historial, no de ahora).
     La misma regla existe en frontend/src/mood.ts (para el modo local sin nube)."""
     alerts = state.get("alerts") or []
     if state.get("readings") is None or any(a.get("code") == "no_data" for a in alerts):
         return {"mood": "sleep", "reason": "sin datos"}
     crit = [a for a in alerts if a.get("level") == "critical"]
+    if not drought_is_current(state.get("readings"), state.get("soil")):
+        crit = [a for a in crit if a.get("code") != "model_drought"]
     warn = [a for a in alerts if a.get("level") == "warn"]
     overall = (state.get("suitability") or {}).get("overall")
     dead = bool((state.get("plant") or {}).get("dead"))

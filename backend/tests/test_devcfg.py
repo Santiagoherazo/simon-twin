@@ -248,3 +248,18 @@ def test_plant_mood():
     assert plant_mood({**ok, "alerts": [{"level": "critical", "message": "x"}]})["mood"] == "sad"
     assert plant_mood({**ok, "suitability": {"overall": 20}})["mood"] == "sad"
     assert plant_mood({"alerts": [{"code": "no_data", "level": "info"}]})["mood"] == "sleep"
+
+
+def test_plant_mood_sequia_es_historia():
+    from app.twin import plant_mood
+    drought = {"code": "model_drought", "level": "critical", "title": "Estrés hídrico"}
+    wet = {"readings": {"vwc_pct": 71.0, "tank_ok": True}, "soil": {"ks": 1.0},
+           "suitability": {"overall": 95}, "alerts": [drought]}
+    assert plant_mood(wet)["mood"] == "happy"          # sonda húmeda: no llora por sequía pasada
+    hypoxia = {"code": "model_hypoxia_warn", "level": "warn", "title": "Suelo encharcado"}
+    assert plant_mood({**wet, "alerts": [drought, hypoxia]})["mood"] == "worried"
+    dry = {**wet, "readings": {"vwc_pct": 25.0, "tank_ok": True}, "soil": {"ks": 0.3}}
+    assert plant_mood(dry)["mood"] == "sad"
+    assert plant_mood({**wet, "readings": {"tank_ok": True}, "soil": {"ks": 0.3}})["mood"] == "sad"
+    other = {"code": "pump_dry_run", "level": "critical", "message": "bomba sin carga"}
+    assert plant_mood({**wet, "alerts": [other]})["mood"] == "sad"   # otras críticas sí lloran
